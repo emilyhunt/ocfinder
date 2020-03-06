@@ -1,0 +1,3 @@
+<component name="DependencyValidationManager">
+  <scope name="ocelot" pattern="file[ocfinder]:ocelot//*" />
+</component>
