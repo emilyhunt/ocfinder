@@ -1,2 +1,1 @@
-from .upmask import run_upmask
-from . import upmask
+__version__ = '0.1.0_alpha'

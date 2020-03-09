@@ -183,7 +183,7 @@ def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], epsilon_value: float,
         **kwargs_for_algorithm: additional kwargs to pass to sklearn.cluster.DBSCAN.
 
     Returns:
-        label array. DBSCAN does not generate probabilities!
+        label array, and None since DBSCAN does not generate probabilities!
 
     """
     dbscan_kwargs = default_dbscan_kwargs
@@ -195,4 +195,4 @@ def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], epsilon_value: float,
     else:
         clusterer = DBSCAN(metric='precomputed', eps=epsilon_value, **dbscan_kwargs)
 
-    return clusterer.fit_predict(data)
+    return clusterer.fit_predict(data), None
