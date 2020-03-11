@@ -17,11 +17,10 @@ default_hdbscan_kwargs = {
     'prediction_data': True,
     'min_cluster_size': 40,
     'min_samples': 10,
-    'max_clustered_stars_for_validity': 10000,
 }
 
 
-def run_hdbscan(data: Union[sparse.csr_matrix, np.ndarray], min_cluster_size: int, min_samples: Optional[int],
+def run_hdbscan(data: Union[sparse.csr_matrix, np.ndarray],
                 max_clustered_stars_for_validity: int = 10000,
                 **kwargs_for_algorithm):
     """Runs HDBSCAN on a field, given an arbitrary number of epsilon values to try.
@@ -30,8 +29,6 @@ def run_hdbscan(data: Union[sparse.csr_matrix, np.ndarray], min_cluster_size: in
         data (scipy.sparse.csr_matrix or np.ndarray): data to use. If csr_matrix, then it is presumed to be a
             pre-computed sparse matrix and metric=precomputed will be used. Otherwise if np.ndarray, assumed to be an
             array of shape (n_samples, n_features), and nearest neighbor analysis will be performed manually.
-        min_cluster_size (int): the minimum cluster size parameter.
-        min_samples (int, optional): the minimum samples parameter. If None, will be the same as min_cluster_size.
         max_clustered_stars_for_validity (int): threshold at which we don't try to compute DBCV validity scores.
             10,000 requires about 0.75GB of RAM, as a square array has to be made! Setting to 0 is equivalent to
             this being off.
@@ -43,7 +40,7 @@ def run_hdbscan(data: Union[sparse.csr_matrix, np.ndarray], min_cluster_size: in
 
     """
     hdbscan_kwargs = default_hdbscan_kwargs
-    hdbscan_kwargs.update(kwargs_for_algorithm, min_cluster_size=min_cluster_size, min_samples=min_samples)
+    hdbscan_kwargs.update(kwargs_for_algorithm)
 
     # Decide on whether the clusterer will be ran with
     if type(data) == np.ndarray:
@@ -98,7 +95,9 @@ class HDBSCANPipeline(ClusteringAlgorithm):
             output_dirs (dict of paths): output directories to write to.
             verbose (bool): whether or not to run in verbose mode with informative print statements.
                 Default: True
-            min_cluster_size
+            user_kwargs (list or tuple of dicts, optional): parameter sets to run with. len(user_kwargs) is the number
+                of runs that will be performed.
+                Default: None (only runs with default parameters once)
 
         User methods:
             apply(): applies the algorithm to the data specified by input_dirs.
@@ -112,8 +111,8 @@ class HDBSCANPipeline(ClusteringAlgorithm):
                          input_patterns=input_patterns,
                          output_dirs=output_dirs,
                          verbose=verbose,
-                         required_input_keys=['data', 'rescaled'],
-                         required_output_keys=['data', 'labels', 'probabilities',
-                                               'clusters', 'times'],
+                         required_input_keys=['cut', 'rescaled'],
+                         required_output_keys=['labels', 'probabilities',
+                                               'cluster_data', 'cluster_list', 'times'],
                          extra_returned_info=['persistences', 'validities'],
                          calculate_cluster_stats=True,)

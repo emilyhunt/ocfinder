@@ -2,6 +2,7 @@
   <dictionary name="ehunt">
     <words>
       <w>clusterer</w>
+      <w>jsonpanda</w>
     </words>
   </dictionary>
 </component>
