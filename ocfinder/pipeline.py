@@ -351,7 +351,7 @@ class ClusteringAlgorithm(Pipeline):
             self.output_paths['labels'] / Path(f"{joined_name}_labels.feather"))
 
         if self._save_probabilities:
-            pd.DataFrame({'probabilities': labels}).to_feather(
+            pd.DataFrame({'probabilities': probabilities}).to_feather(
                 self.output_paths['probabilities'] / Path(f"{joined_name}_probs.feather"))
 
         # Grab stuff we need
@@ -743,19 +743,19 @@ class ResultPlotter(Pipeline):
             self.first_generate_figure_title_call = False
 
         if clusters_to_plot != 'all':
-            savename_suffix = str(clusters_to_plot)
+            savename_suffix = '_' + str(clusters_to_plot)
         else:
             savename_suffix = ''
 
         # Now, let's make us a figure title of fun and happiness!!!
         self.plot_kwargs['figure_title'] = (
             self.base_figure_title +
-            f"Clustering analysis with {series_runs['algorithm']}\n"
+            f"Clustering analysis with {series_runs['algorithm']}, "
             f"field: {series_runs['field_name']}, run: {series_runs['run_name']}\n"
-            f"total clusters (valid) (plotted): {series_runs['n_clusters']}  ({cluster_list.shape[0]})\n"
-            f"plotted clusters: {clusters_to_plot}"
+            f"total clusters (num valid): {series_runs['n_clusters']}  ({cluster_list.shape[0]}), "
+            f"plotted clusters: {clusters_to_plot}\n"
             f"non-default parameters: {series_runs['parameters']}\n"
-            f"runtime: {series_runs['time']}s  ({series_runs['time'] / 60**2}h)"
+            f"runtime: {series_runs['time']:.2f}s  ({series_runs['time'] / 60**2:.2f}h)"
         )
 
         # And a save name too =)
@@ -817,10 +817,9 @@ class ResultPlotter(Pipeline):
             # Work out which clusters to plot if there's a threshold
             if threshold is not None:
                 good_clusters = self._get_threshold_passes(cluster_list[threshold_key], threshold, threshold_comparison)
+                cluster_indices_to_plot = cluster_list.loc[good_clusters, 'cluster_label'].to_numpy()
             else:
-                good_clusters = True  # todo does this work instead of: np.ones(cluster_list.shape[0], dtype=bool)
-
-            cluster_indices_to_plot = cluster_list.loc[good_clusters, 'cluster_label']
+                cluster_indices_to_plot = cluster_list['cluster_label'].to_numpy()
 
             if self.verbose:
                 print(f"  found {len(cluster_indices_to_plot)} valid clusters to plot")

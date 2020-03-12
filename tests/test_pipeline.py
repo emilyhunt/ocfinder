@@ -112,6 +112,8 @@ def test_plotting():
 
     kwargs_for_plotting_algorithm = {
         'cmd_plot_y_limits': [8, 18],
+        'dpi': 300,
+        'cluster_marker_radius': (2., 2., 2.),
     }
 
     industrial_strength_plotting_pipeline = ocfinder.pipeline.ResultPlotter(
@@ -125,7 +127,7 @@ def test_plotting():
     # return industrial_strength_plotting_pipeline
 
     industrial_strength_plotting_pipeline.apply(
-        plot_clusters_individually=True, threshold=0.05, threshold_comparison='>=', threshold_key='persistences')
+        plot_clusters_individually=True,)  # threshold=0.05, threshold_comparison='>=', threshold_key='persistences')
 
     return industrial_strength_plotting_pipeline
 
