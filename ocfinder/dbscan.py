@@ -6,164 +6,160 @@ import pandas as pd
 import json
 import gc
 import datetime
+import matplotlib.pyplot as plt
 
 from pathlib import Path
-from typing import Union, List, Tuple
+from typing import Union, Optional, List, Tuple, Dict
 from scipy import sparse
 from sklearn.cluster import DBSCAN
 
 from .utilities import print_itertime
+from .pipeline import Pipeline, ClusteringAlgorithm
 
 
-def dbscan_preprocessing(input_dir: Path,
-                         output_dir: Path,
-                         epsilon_file: Path,
-                         allow_epsilon_file_overwrite: bool = False,
-                         files_to_run_on: Union[int, str] = 'all',
-                         min_samples: int = 10,
-                         acg_repeats: Union[List[int], Tuple[int], np.ndarray] = (10,),
-                         verbose: bool = True) -> None:
-    """Creates pre-processed sparse matrices and distance arrays, and calculates epsilon estimates.
+class DBSCANPreprocessor(Pipeline):
+    def __init__(self,
+                 names: Union[list, tuple, np.ndarray],
+                 input_dirs: Dict[str, Union[Path, List[Path]]],
+                 input_patterns: Optional[Dict[str, str]] = None,
+                 output_dirs: Optional[Dict[str, Path]] = None,
+                 verbose: bool = True,
+                 min_samples: int = 10,
+                 acg_repeats: Union[list, tuple, np.ndarray] = (10,)):
+        """Pre-processor for taking Gaia data as input and calculating all required stuff.
 
-    Args:
-        input_dir (pathlib.Path): directory to find rescaled arrays in (must have filenames ending in _rescaled.json)
-        output_dir (pathlib.Path): directory to place all output of this function in.
-        epsilon_file (pathlib.Path): location of the epsilon csv file to write to.
-        allow_epsilon_file_overwrite (bool): whether or not to allow overwrites of the epsilon .csv file.
-            Default: False (will raise an error if attempted)
-        files_to_run_on (str or int): if 'all', run on everything. Otherwise, if int, run on everything upto that file
-            number.
-            Default: 'all'
-        min_samples (int): min_samples parameter to calculate epsilon values for.
-            Default: 10
-        acg_repeats (list-like): an array or list where each element is an int specifying how many ACG epsilon repeats
-            to do.
-            Default: (10,) (i.e. just do one epsilon calculation for 10 repeats)
-        verbose (bool): whether or not to print updates and an ETA for finishing.
-            Default: True (recommended)
+        Args:
+            names (list-like): list of names of fields to run on to save.
+            input_dirs (dict of paths or lists of paths): input directories. You have three options:
+                - If a path to one file, just one path will be saved
+                - If a list of paths, this list will be saved
+                - If a path to a directory, then files with a suffix specified by input_patterns[the_dict_key] will be
+                  saved.
+                Must specify 'rescaled'.
+            input_patterns (dict of str): for input_dirs that are a path to a directory, this is the pattern to look
+                for. Can just be "*" to look for all files.
+                Default: None
+            output_dirs (dict of paths): output directories to write to. Must specify 'epsilon', 'plots', 'sparse'.
+            verbose (bool): whether or not to run in verbose mode with informative print statements.
+                Default: True
+            min_samples (int): min_samples parameter to calculate epsilon values for.
+                Default: 10
+            acg_repeats (list-like): an array or list where each element is an int specifying how many ACG epsilon
+                repeats to do.
+                Default: (10,) (i.e. just do one epsilon calculation for 10 repeats)
 
-    Returns:
-        None, but sparse matrices, distance arrays and field model epsilon diagnostic plots will be written to
-            output_dir, and an epsilon .csv file of epsilon estimates made (appended to if overwrites allowed) will be
-            made at epsilon_file.
 
-    """
-    # Grab all of the files to pre-process, including cutting the list of files to run on if requested
-    files_to_preprocess = list(input_dir.glob("*_rescaled.json"))
+        """
+        super().__init__(names,
+                         input_dirs,
+                         input_patterns=input_patterns, output_dirs=output_dirs, verbose=verbose,
+                         required_input_keys=['rescaled'],
+                         required_output_keys=['epsilon', 'plots', 'sparse'],
+                         check_input_shape=True)
 
-    if files_to_run_on != 'all':
-        files_to_preprocess = files_to_preprocess[:files_to_run_on]
+        self.min_samples = min_samples
+        self.acg_repeats = acg_repeats
 
-    # Also estimate how long the file extensions are so that we can extract names correctly
-    extension_length = len("_rescaled.json")
+        # Some useful things for the field model
+        self.epsilon_names = ['eps_c', 'eps_n1', 'eps_n2', 'eps_n3', 'eps_f']
+        self.parameter_names = ['field_constant', 'field_dimension', 'cluster_constant', 'cluster_dimension',
+                                'cluster_fraction']
 
-    # Initialise the epsilon file if it doesn't already exist
-    if epsilon_file.exists():
-        if not allow_epsilon_file_overwrite:
-            raise ValueError("specified location of epsilon estimates for the field (aka epsilon_file) already exists! "
-                             "Set allow_epsilon_file_overwrite=True to disable this warning message and allow "
-                             "the file to be appended to.")
-        new_file = False
-    else:
-        new_file = True
+        if self.verbose:
+            print("DBSCAN preprocessing pipeline initialised!")
 
-    # Declare some useful stuff before we begin, including names of field model parameters
-    epsilon_names = ['eps_c', 'eps_n1', 'eps_n2', 'eps_n3', 'eps_f']
-    parameter_names = ['field_constant', 'field_dimension', 'cluster_constant', 'cluster_dimension', 'cluster_fraction']
+    def _save_epsilon_dataframe(self, data_to_save: dict, field_name: str):
+        """Incrementally saves values to the dataframe of epsilon estimates. Must always have the same columns!"""
+        # Work out if it's a new file or not
+        epsilon_filename = self.output_paths['epsilon'] / Path(f'{field_name}_epsilon.csv')
 
-    iteration_start = datetime.datetime.now()
-    completed_steps = 0
-    total_steps = len(files_to_preprocess)
+        # And save!
+        pd.DataFrame(data_to_save, index=[0]).to_csv(epsilon_filename, index=False)
 
-    # Calculate epsilon with all methods
-    for a_file in files_to_preprocess:
+    def apply(self):
+        """Applies the pre-processor."""
+        completed_steps = 0
+        total_steps = len(self.names)
+        iteration_start = datetime.datetime.now()
 
-        name = str(a_file).rsplit("/")[-1][:-extension_length]
+        # Cycle over each cluster, applying all of the required pre-processing steps
+        for a_path, a_name in zip(self.input_paths['rescaled'], self.names):
 
-        if verbose:
-            print(f"Working on field {name}...")
-            print(f"  reading in file")
+            if self.verbose:
+                print(f"Working on field {a_name}...")
+                print("  opening the field's data")
 
-        # First off, let's make us a lovely sparse matrix and distance array
-        with open(str(a_file.resolve()), 'r') as json_file:
-            data_rescaled = json.load(json_file)
+            # Open up the data
+            data_rescaled = self._open(a_path).values
 
-        if verbose:
-            print(f"  calculating sparse matrix and nn distance array")
-        sparse_matrix, distances = ocelot.cluster.precalculate_nn_distances(
-            data_rescaled, n_neighbors=min_samples, return_sparse_matrix=True, return_knn_distance_array=True)
-
-        # Now, let's calculate the desired epsilon values
-        a_epsilon_dict = {'id': name}
-
-        # First, for the acg method
-        for a_acg_repeats in acg_repeats:
-            if verbose:
-                print(f"  calculating epsilon acg for {a_acg_repeats} random draws")
-
+            # Make a nearest neighbor distances array upto min_samples
+            if self.verbose:
+                print("  pre-calculating nearest neighbor distances for the fields")
             start = datetime.datetime.now()
-            a_epsilon_dict[f"acg_{a_acg_repeats}"] = ocelot.cluster.epsilon.acg18(
-                data_rescaled, distances, n_repeats=a_acg_repeats, min_samples=min_samples)
-            a_epsilon_dict[f"time_acg_{a_acg_repeats}"] = (datetime.datetime.now() - start).total_seconds()
+            sparse_matrix, nn_distances = ocelot.cluster.precalculate_nn_distances(
+                data_rescaled, self.min_samples, return_sparse_matrix=True, return_knn_distance_array=True)
+            runtime_nn_distance = (datetime.datetime.now() - start).total_seconds()
 
-        # Now, for my method
-        if verbose:
-            print(f"  calculating field model epsilon values")
+            # Calculate the ACG epsilon
+            if self.verbose:
+                print("  calculating epsilons for the acg method")
+            start = datetime.datetime.now()
+            a_epsilon_dict = ocelot.cluster.epsilon.acg18(
+                data_rescaled, nn_distances, n_repeats=self.acg_repeats, min_samples=self.min_samples).to_dict()
+            a_epsilon_dict['runtime_acg'] = (datetime.datetime.now() - start).total_seconds()
 
-        # Do it once just to time it precisely (lol)
-        start = datetime.datetime.now()
-        result, epsilons, parameters, n_members = ocelot.cluster.epsilon.field_model(
-            distances, min_samples=min_samples)
+            del data_rescaled
+            gc.collect()
 
-        a_epsilon_dict.update(field_model_success=result,
-                              **dict(zip(epsilon_names, epsilons)),
-                              **dict(zip(parameter_names, parameters)),
-                              estimated_n_members=n_members)
+            # Calculate the field model epsilon
+            if self.verbose:
+                print("  calculating epsilons for the field model method")
+            start = datetime.datetime.now()
+            result, epsilons, parameters, n_members = ocelot.cluster.epsilon.field_model(
+                nn_distances, min_samples=self.min_samples)
 
-        a_epsilon_dict[f"time_field_model"] = (datetime.datetime.now() - start).total_seconds()
+            a_epsilon_dict.update(field_model_success=result,
+                                  **dict(zip(self.epsilon_names, epsilons)),
+                                  **dict(zip(self.parameter_names, parameters)),
+                                  estimated_n_members=n_members)
 
-        # Then do the whole thing again just to plot it (so fucking lol)
-        if verbose:
-            print(f"  plotting the output")
+            a_epsilon_dict['runtime_field_model'] = (datetime.datetime.now() - start).total_seconds()
+            a_epsilon_dict['runtime_nn_distance'] = runtime_nn_distance
 
-        ocelot.cluster.epsilon.field_model(
-            distances,
-            min_samples=min_samples,
-            make_diagnostic_plot=True,
-            figure_title=f"nearest neighbour distances for field {name}",
-            number_of_derivatives=2,
-            save_name=output_dir / Path(f"{name}_nn_distances.png")
-        )
+            # Now, let's make a diagnostic plot of the results (we do the whole thing again just to plot it because
+            # my old API fucking sucked lmao)
+            if self.verbose:
+                print(f"  plotting the output")
 
-        # Save the data
-        if verbose:
-            print(f"  saving the output incrementally")
+            ocelot.cluster.epsilon.field_model(
+                nn_distances,
+                min_samples=self.min_samples,
+                make_diagnostic_plot=True,
+                figure_title=f"nearest neighbour distances for field {a_name}",
+                number_of_derivatives=2,
+                save_name=self.output_paths['plots'] / Path(f"{a_name}_nn_distances.png")
+            )
 
-        # Distance info & sparse matrix
-        with open(output_dir / Path(f"{name}_distances.json"), 'w') as json_file:
-            json.dump(distances, json_file)
+            # Save the data
+            if self.verbose:
+                print(f"  saving the output incrementally")
 
-        sparse.save_npz(output_dir / Path(f"{name}_matrix.npz"), sparse_matrix)
+            self._save_epsilon_dataframe(a_epsilon_dict, a_name)
 
-        # Epsilon values CSV (making it freshly if needed)
-        if new_file:
-            epsilon_df = pd.DataFrame(pd.Series(a_epsilon_dict))
-            new_file = False
-        else:
-            epsilon_df = pd.read_csv(epsilon_file)
-            epsilon_df = epsilon_df.append(pd.Series(a_epsilon_dict), ignore_index=True)
-        epsilon_df.to_csv(epsilon_file)
+            sparse.save_npz(self.output_paths['sparse'] / Path(f"{a_name}_matrix.npz"), sparse_matrix)
 
-        # Paranoid garbage collection
-        del distances, sparse_matrix, epsilon_df, data_rescaled
-        gc.collect()
+            # Memory management
+            del nn_distances, sparse_matrix
+            plt.close('all')
+            gc.collect()
 
-        # Output info
-        completed_steps += 1
-        if verbose:
-            print_itertime(iteration_start, completed_steps, total_steps)
+            # Output
+            completed_steps += 1
+            if self.verbose:
+                print_itertime(iteration_start, completed_steps, total_steps)
 
-    print("All DBSCAN preprocessing is completed!")
+        if self.verbose:
+            print(f"  DBSCAN pre-processing is complete!")
 
 
 default_dbscan_kwargs = {
@@ -172,14 +168,16 @@ default_dbscan_kwargs = {
 }
 
 
-def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], epsilon_value: float, **kwargs_for_algorithm):
+def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], data_epsilon: pd.DataFrame,
+               epsilon_value: str = 'acg_5', **kwargs_for_algorithm):
     """Runs DBSCAN on a field, given an arbitrary number of epsilon values to try.
 
     Args:
         data (scipy.sparse.csr_matrix or np.ndarray): data to use. If csr_matrix, then it is presumed to be a
             pre-computed sparse matrix and metric=precomputed will be used. Otherwise if np.ndarray, assumed to be an
             array of shape (n_samples, n_features), and nearest neighbor analysis will be performed manually.
-        epsilon_value (float): the value for epsilon to run with.
+        data_epsilon (pd.DataFrame): a DataFrame of shape (doesn't matter lol, 1) containing epsilon estimates to use.
+        epsilon_value (str): the key into data_epsilon to use as our epsilon value.
         **kwargs_for_algorithm: additional kwargs to pass to sklearn.cluster.DBSCAN.
 
     Returns:
@@ -188,11 +186,60 @@ def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], epsilon_value: float,
     """
     dbscan_kwargs = default_dbscan_kwargs
     dbscan_kwargs.update(kwargs_for_algorithm)
+    dbscan_kwargs.update(eps=float(data_epsilon.loc[0, epsilon_value]))
 
     # Decide on whether the clusterer will be ran with
     if type(data) == np.ndarray:
-        clusterer = DBSCAN(metric='euclidean', eps=epsilon_value, **dbscan_kwargs)
+        clusterer = DBSCAN(metric='euclidean', **dbscan_kwargs)
     else:
-        clusterer = DBSCAN(metric='precomputed', eps=epsilon_value, **dbscan_kwargs)
+        clusterer = DBSCAN(metric='precomputed', **dbscan_kwargs)
 
     return clusterer.fit_predict(data), None
+
+
+class DBSCANPipeline(ClusteringAlgorithm):
+    def __init__(self,
+                 names: Union[list, tuple, np.ndarray],
+                 input_dirs: Dict[str, Union[Path, List[Path]]],
+                 input_patterns: Optional[Dict[str, str]] = None,
+                 output_dirs: Optional[Dict[str, Path]] = None,
+                 verbose: bool = True,
+                 user_kwargs: Optional[Union[List[dict], Tuple[dict]]] = None):
+        """Looking to run DBSCAN on a large selection of fields? Then look no further! This pipeline has you covered.
+
+        Args:
+            names (list-like): list of names of fields to run on to save.
+            input_dirs (dict of paths or lists of paths): input directories. You have three options:
+                - If a path to one file, just one path will be saved
+                - If a list of paths, this list will be saved
+                - If a path to a directory, then files with a suffix specified by input_patterns[the_dict_key] will be
+                  saved.
+                All key locations must end up having the same shape if check_input_shape=True, which is specified by the
+                requirements of the subclass.
+                Must specify 'cut', 'rescaled', 'epsilon'. Additionally, 'rescaled' may in fact be a sparse distances
+                matrix.
+            input_patterns (dict of str): for input_dirs that are a path to a directory, this is the pattern to look
+                for. Can just be "*" to look for all files.
+                Default: None
+            output_dirs (dict of paths): output directories to write to.
+            verbose (bool): whether or not to run in verbose mode with informative print statements.
+                Default: True
+            user_kwargs (list or tuple of dicts, optional): parameter sets to run with. len(user_kwargs) is the number
+                of runs that will be performed.
+                Default: None (only runs with default parameters once)
+
+        User methods:
+            apply(): applies the algorithm to the data specified by input_dirs.
+
+        """
+
+        super().__init__(run_dbscan,
+                         user_kwargs,
+                         names,
+                         input_dirs,
+                         input_patterns=input_patterns,
+                         output_dirs=output_dirs,
+                         verbose=verbose,
+                         required_input_keys=['cut', 'rescaled', 'epsilon'],
+                         required_output_keys=['labels', 'cluster_data', 'cluster_list', 'times'],
+                         calculate_cluster_stats=True,)

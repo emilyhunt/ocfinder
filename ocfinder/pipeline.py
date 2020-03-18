@@ -10,6 +10,8 @@ import gc
 import datetime
 import matplotlib.pyplot as plt
 
+import warnings
+
 from pathlib import Path
 from typing import Union, List, Tuple, Dict, Optional, Callable
 from .utilities import print_itertime
@@ -73,14 +75,20 @@ class Pipeline(object):
 
             # List of inputs
             if type(input_dirs[a_key]) == list:
+                print("list")
                 self.input_paths[a_key] = input_dirs[a_key]
 
             # Input is a directory
             elif input_dirs[a_key].is_dir():
                 self.input_paths[a_key] = list(Path(input_dirs[a_key]).glob(input_patterns[a_key]))
 
-            else:
+            # Just one input
+            elif input_dirs[a_key].exists():
                 self.input_paths[a_key] = [input_dirs[a_key]]
+
+            # Raise error
+            else:
+                raise ValueError(f"the input for key '{a_key}' is not a list of paths, a directory or a singular path.")
 
             # Value checking
             if a_key not in inputs_not_to_check:
@@ -135,14 +143,41 @@ class Pipeline(object):
             return False
 
     @staticmethod
+    def _open_multiple_files(paths: Union[list, tuple, np.ndarray]):
+        """Wrapper for _open that opens a list of paths at once and combines them, intended for use with tables that
+        were split for memory reasons. All tables must have the same column names and the same file extension!
+
+        Supports:
+        .csv
+        .feather
+
+        """
+        mode = paths[0].suffix
+
+        if mode == '.csv':
+            readfunc = pd.read_csv
+        elif mode == '.feather':
+            readfunc = pd.read_feather
+        else:
+            raise ValueError(f"Specified file type {mode} not supported!")
+
+        files = [None] * len(paths)
+        for i, a_path in enumerate(paths):
+            files[i] = readfunc(a_path)
+
+        return pd.concat(files, ignore_index=True)
+
+    @staticmethod
     def _open(path: Path):
-        """Cheeky function to read in Gaia data from a pickle file or a JSON.
+        """Cheeky function to read in Gaia data from a pickle file, JSON, etc...
 
         Supports:
         .pickle
         .json
         .jsonpanda (reads straight to a pandas object)
         .csv (also reads straight to a pandas object)
+        .npz
+        .feather
         """
         mode = path.suffix
 
@@ -372,7 +407,8 @@ class ClusteringAlgorithm(Pipeline):
                 # Calculate all statistics with ocelot
                 a_dict = {'field': field_name,
                           'run': run_name,
-                          'cluster_label': a_label}
+                          'cluster_label': a_label,
+                          'cluster_id': cluster_id}
 
                 # Make a baby data gaia if it's needed
                 if self._save_data_gaia_views or self._calculate_cluster_stats:
@@ -468,12 +504,14 @@ default_rescale_kwargs = {
 class Preprocessor(Pipeline):
     def __init__(self,
                  names: Union[list, tuple, np.ndarray],
-                 input_dirs: Dict[str, Union[Path, List[Path]]],
+                 input_dirs: Dict[str, Union[Path, list]],
                  input_patterns: Optional[Dict[str, str]] = None,
                  output_dirs: Optional[Dict[str, Path]] = None,
                  verbose: bool = True,
                  cuts: dict = None,
-                 centers: Union[list, tuple, np.ndarray] = None,
+                 centers: Optional[Union[list, tuple, np.ndarray]] = None,
+                 pixel_ids: Optional[Union[list, tuple, np.ndarray]] = None,
+                 split_files: bool = False,
                  **kwargs_for_rescaler):
         """Pre-processor for taking Gaia data as input and calculating all required stuff.
 
@@ -492,7 +530,16 @@ class Preprocessor(Pipeline):
             verbose (bool): whether or not to run in verbose mode with informative print statements.
                 Default: True
             cuts (dict): cuts to pass to ocelot.preprocess.cut_dataset.
-            centers
+                Default: None
+            centers (list, tuple, np.ndarray): centers of the fields to re-center, with shape (n_fields, 2) and format
+                (ra, dec). Must specify me or pixel_ids.
+                Default: None
+            pixel_ids (list, tuple, np.ndarray): pixel ids of the central pixel in every field, with shape (n_fields,).
+                Must specify me or centers.
+                Default: None
+            split_files (bool): whether or not files are split into multiple .csv files. This can be the case for
+                Gaia data downloads of separate HEALPix pixels. All files with the same field name will hence be merged.
+                Default: False
             **kwargs_for_rescaler: additional kwargs to pass to the rescaler/defaults to over-write.
 
         """
@@ -507,15 +554,40 @@ class Preprocessor(Pipeline):
             cuts = {}
         self.cuts = cuts
 
-        if centers is None:
-            raise ValueError("sorry! Centers must be specified. There's currently no way to infer these automatically.")
-        self.centers = centers
+        if centers is not None and pixel_ids is None:
+            self.center_mode = True
+            self.centers = centers
+        elif pixel_ids is not None and centers is None:
+            self.center_mode = False
+            self.centers = pixel_ids
 
         self.rescale_kwargs = default_rescale_kwargs
         self.rescale_kwargs.update(**kwargs_for_rescaler)
+        self.split_files = split_files
+
+        if self.split_files:
+            self._handle_split_files()
 
         if self.verbose:
             print("Preprocessing pipeline initialised!")
+
+    def _handle_split_files(self):
+        """Handles files being split into multiple components/pixels. This can be the case for individual download of
+        Gaia HEALPix cells. Currently, will join everything with the same id into lists of paths to each file."""
+
+        # Get the field ID of all files, which should be the part of the file stem before the first underscore
+        warnings.warn("split files in the preprocessor are an experimental feature. Proceed with caution! "
+                      "Make sure that all file names have a field id at the start of the file stem that does NOT "
+                      "contain underscores.")
+        field_ids = [x.stem.rsplit(sep="_")[0] for x in self.input_paths['data']]
+        unique_field_ids, counts = np.unique(field_ids, return_counts=True)
+
+        # Now, let's use numpy vectorisation to select all fields in the sets of matches and make them into
+        vector_input_paths = np.asarray(self.input_paths['data'], dtype=object)
+        matches = unique_field_ids.reshape(-1, 1) == field_ids
+        self.input_paths['data'] = [vector_input_paths[a_match_set].tolist() for a_match_set in matches]
+
+        print(self.input_paths['data'])
 
     def apply(self):
         """Applies the pre-processor."""
@@ -526,14 +598,20 @@ class Preprocessor(Pipeline):
                 print(f"Working on field {a_name}...")
                 print(f"  cutting dataset")
 
-            data_gaia = self._open(a_path)
+            if self.split_files:
+                data_gaia = self._open_multiple_files(a_path)
+            else:
+                data_gaia = self._open(a_path)
 
             # Apply cuts and scaling
             data_gaia = ocelot.cluster.cut_dataset(data_gaia, self.cuts)
 
             if self.verbose:
                 print(f"  re-centering dataset")
-            data_gaia = ocelot.cluster.recenter_dataset(data_gaia, center=a_center)
+            if self.center_mode:
+                data_gaia = ocelot.cluster.recenter_dataset(data_gaia, center=a_center)
+            else:
+                data_gaia = ocelot.cluster.recenter_dataset(data_gaia, pixel_id=a_center, rotate_frame=True)
 
             if self.verbose:
                 print(f"  re-scaling dataset")

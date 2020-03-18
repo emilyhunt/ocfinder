@@ -111,7 +111,7 @@ class HDBSCANPipeline(ClusteringAlgorithm):
                          input_patterns=input_patterns,
                          output_dirs=output_dirs,
                          verbose=verbose,
-                         required_input_keys=['cut', 'rescaled'],
+                         required_input_keys=['cut', 'rescaled', 'epsilon'],
                          required_output_keys=['labels', 'probabilities',
                                                'cluster_data', 'cluster_list', 'times'],
                          extra_returned_info=['persistences', 'validities'],

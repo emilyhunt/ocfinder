@@ -2,5 +2,6 @@
 <project version="4">
   <component name="SharedFileColors">
     <fileColor scope="ocelot" color="1b4344" />
+    <fileColor scope="cac20_running" color="462326" />
   </component>
 </project>

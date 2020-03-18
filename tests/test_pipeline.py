@@ -3,7 +3,7 @@
 import ocfinder.pipeline
 import ocfinder.hdbscan
 import ocfinder.dbscan
-import ocfinder.upmask
+# import ocfinder.upmask  # Not all machines using this code have R installed, for now...
 import ocfinder.gmm
 
 import pickle
@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 
 path_to_blanco_1 = Path('./test_data/blanco_1_gaia_dr2_gmag_18_cut.pickle')
+path_to_split_data = Path('./test_data/healpix_pixel/')
 
 
 def test_pipeline():
@@ -60,6 +61,25 @@ def test_preprocessor():
     return preprocessor, data_cut
 
 
+def test_preprocessor_split():
+    """Tests the preprocessing pipeline when data is split between multiple files."""
+    input_dirs = {'data': path_to_split_data}
+    output_dirs = {'cut': Path('./test_preprocessor_output_healpix'),
+                   'scaler': Path('./test_preprocessor_output_healpix'),
+                   'rescaled': Path('./test_preprocessor_output_healpix')}
+
+    preprocessor = ocfinder.pipeline.Preprocessor(['0000'],
+                                                  input_dirs,
+                                                  input_patterns={'data': "*"},
+                                                  output_dirs=output_dirs,
+                                                  cuts={'parallax': [1, np.inf]},
+                                                  pixel_ids=[12238],
+                                                  split_files=True)
+    preprocessor.apply()
+
+    return preprocessor
+
+
 def test_hdbscan():
     """Tests the HDBSCAN usage of the ClusteringAlgorithm superclass et al."""
     input_dirs = {'cut': Path('./test_preprocessor_output/Blanco_1_cut.feather'),
@@ -81,9 +101,41 @@ def test_hdbscan():
     industrial_strength_clustering_pipeline.apply()
 
 
+def test_dbscan_preprocessor():
+    """Tests the DBSCAN preprocessor."""
+    input_dirs = {'rescaled': Path('./test_preprocessor_output/Blanco_1_rescaled.feather')}
+    output_dirs = {'epsilon': Path('./test_dbscan_output'),
+                   'plots': Path('./test_dbscan_output'),
+                   'sparse': Path('./test_dbscan_output')}
+
+    preprocessor = ocfinder.dbscan.DBSCANPreprocessor(
+        ['Blanco_1'],
+        input_dirs,
+        output_dirs=output_dirs,
+        min_samples=10,
+        acg_repeats=(5, 10, 30)
+    )
+
+    preprocessor.apply()
+
+
 def test_dbscan():
     """Tests the DBSCAN usage of the ClusteringAlgorithm superclass et al."""
-    # Todo
+    input_dirs = {'cut': Path('./test_preprocessor_output/Blanco_1_cut.feather'),
+                  'rescaled': Path('./test_preprocessor_output/Blanco_1_rescaled.feather'),
+                  'epsilon': Path('./test_dbscan_output/epsilon_values.csv')}
+    output_dirs = {'labels': Path('./test_dbscan_output'),
+                   'cluster_data': Path('./test_dbscan_output'),
+                   'cluster_list': Path('./test_dbscan_output'),
+                   'times': Path('./test_dbscan_output')}
+
+    industrial_strength_clustering_pipeline = ocfinder.dbscan.DBSCANPipeline(
+        ['Blanco_1'],
+        input_dirs,
+        output_dirs=output_dirs,
+    )
+
+    industrial_strength_clustering_pipeline.apply()
     pass
 
 
@@ -135,4 +187,5 @@ if __name__ == '__main__':
     # pipe, gaia = test_pipeline()
     # pipe, gaia = test_preprocessor()
     # test_hdbscan()
-    pipe = test_plotting()
+    test_dbscan_preprocessor()
+    # pipe = test_plotting()
