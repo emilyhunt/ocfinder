@@ -81,6 +81,7 @@ class Pipeline(object):
             # Input is a directory
             elif input_dirs[a_key].is_dir():
                 self.input_paths[a_key] = list(Path(input_dirs[a_key]).glob(input_patterns[a_key]))
+                self.input_paths[a_key].sort()
 
             # Just one input
             elif input_dirs[a_key].exists():
