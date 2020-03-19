@@ -77,7 +77,8 @@ class HDBSCANPipeline(ClusteringAlgorithm):
                  input_patterns: Optional[Dict[str, str]] = None,
                  output_dirs: Optional[Dict[str, Path]] = None,
                  verbose: bool = True,
-                 user_kwargs: Optional[Union[List[dict], Tuple[dict]]] = None):
+                 user_kwargs: Optional[Union[List[dict], Tuple[dict]]] = None,
+                 max_cluster_size_to_save: int = 10000):
         """Looking to run HDBSCAN on a large selection of fields? Then look no further! This pipeline has you covered.
 
         Args:
@@ -98,6 +99,9 @@ class HDBSCANPipeline(ClusteringAlgorithm):
             user_kwargs (list or tuple of dicts, optional): parameter sets to run with. len(user_kwargs) is the number
                 of runs that will be performed.
                 Default: None (only runs with default parameters once)
+            max_cluster_size_to_save (int): maximum cluster size to save baby_data_gaia views for. If 0 or -ve, then we
+                also don't calculate any statistics for the cluster, and just return the labels (+probabilities).
+                Default: 10000
 
         User methods:
             apply(): applies the algorithm to the data specified by input_dirs.
@@ -115,4 +119,4 @@ class HDBSCANPipeline(ClusteringAlgorithm):
                          required_output_keys=['labels', 'probabilities',
                                                'cluster_data', 'cluster_list', 'times'],
                          extra_returned_info=['persistences', 'validities'],
-                         calculate_cluster_stats=True,)
+                         max_cluster_size_to_save=max_cluster_size_to_save, )

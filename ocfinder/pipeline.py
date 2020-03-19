@@ -177,6 +177,7 @@ class Pipeline(object):
         .jsonpanda (reads straight to a pandas object)
         .csv (also reads straight to a pandas object)
         .npz
+        .npy
         .feather
         """
         mode = path.suffix
@@ -199,7 +200,8 @@ class Pipeline(object):
                                           f"at {path} has 2+ or 0 arrays.")
             else:
                 return numpy_files[numpy_files.files[0]]
-
+        elif mode == '.npy':
+            return np.load(str(path.resolve()))
         elif mode == '.feather':
             return pd.read_feather(path)
         else:
@@ -218,7 +220,7 @@ class ClusteringAlgorithm(Pipeline):
                  required_input_keys: Union[list, tuple] = ('data', 'rescaled'),
                  required_output_keys: Union[list, tuple] = ('data', 'labels', 'times'),
                  extra_returned_info: Union[list, tuple] = (),
-                 calculate_cluster_stats: bool = True,):
+                 max_cluster_size_to_save: int = 10000, ):
         """Intermediary superclass between the Pipeline class and clustering algorithms. Implements apply(),
         save_clustering_result() and save_clustering_time() methods.
 
@@ -253,8 +255,9 @@ class ClusteringAlgorithm(Pipeline):
             extra_returned_info (list, tuple): names of extra info columns returned by algorithm. If specified and if
                 a 'cluster' Path in required_output_keys/output_dirs is specified, then these columns will be saved
                 to the per-cluster info dataframe.
-            calculate_cluster_stats (bool): whether or not to calculate cluster statistics.
-                Default: True
+            max_cluster_size_to_save (int): maximum cluster size to save baby_data_gaia views for. If 0 or -ve, then we
+                also don't calculate any statistics for the cluster, and just return the labels (+probabilities).
+                Default: 10000
 
         """
 
@@ -297,7 +300,8 @@ class ClusteringAlgorithm(Pipeline):
         # - Calculated statistics
         # - Extra information from the algorithm (e.g. means/stds from GMMs)
         self._save_cluster_info = 'cluster_list' in required_output_keys
-        self._calculate_cluster_stats = calculate_cluster_stats
+        self._calculate_cluster_stats = max_cluster_size_to_save > 0
+        self._max_cluster_size_for_stats = max_cluster_size_to_save
 
         if self.verbose:
             print("  initialisation is complete! Hurrah \\o/")
@@ -426,7 +430,7 @@ class ClusteringAlgorithm(Pipeline):
                             baby_data_gaia, membership_probabilities=baby_probabilities))
 
                     # Save the small data_gaia view
-                    if self._save_data_gaia_views:
+                    if self._save_data_gaia_views and a_dict['n_stars'] < self._max_cluster_size_for_stats:
 
                         if self._save_probabilities:
                             baby_data_gaia['probability'] = baby_probabilities
@@ -591,6 +595,11 @@ class Preprocessor(Pipeline):
 
     def apply(self):
         """Applies the pre-processor."""
+        completed_steps = 0
+        total_steps = len(self.names)
+
+        iteration_start = datetime.datetime.now()
+
         # Cycle over each cluster, applying all of the required pre-processing steps
         for a_path, a_center, a_name in zip(self.input_paths['data'], self.centers, self.names):
 
@@ -633,6 +642,10 @@ class Preprocessor(Pipeline):
 
             if self.verbose:
                 print(f"  both saved successfully!")
+
+            completed_steps += 1
+            if self.verbose:
+                print_itertime(iteration_start, completed_steps, total_steps)
 
         if self.verbose:
             print(f"  pre-processing is complete!")
