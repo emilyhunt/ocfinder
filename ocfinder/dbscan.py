@@ -105,7 +105,8 @@ class DBSCANPreprocessor(Pipeline):
                 print("  calculating epsilons for the acg method")
             start = datetime.datetime.now()
             a_epsilon_dict = ocelot.cluster.epsilon.acg18(
-                data_rescaled, nn_distances, n_repeats=self.acg_repeats, min_samples=self.min_samples).to_dict()
+                data_rescaled, nn_distances, n_repeats=self.acg_repeats, min_samples=self.min_samples,
+                return_std_deviation=True).to_dict()
             a_epsilon_dict['runtime_acg'] = (datetime.datetime.now() - start).total_seconds()
 
             del data_rescaled
