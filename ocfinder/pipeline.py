@@ -209,6 +209,21 @@ class Pipeline(object):
             raise ValueError(f"Specified file type {mode} not supported!")
 
 
+# A blank statistics DataFrame. We use this in case no clusters are returned so that a blank cluster list can be saved
+# instead for that field.
+_blank_statistics_dataframe = pd.DataFrame(columns=[
+    'field', 'run', 'cluster_label', 'cluster_id', 'n_stars',
+    'ra', 'ra_error', 'dec', 'dec_error', 'ang_radius_50',
+    'ang_radius_50_error', 'ang_radius_c', 'ang_radius_c_error',
+    'ang_radius_t', 'ang_radius_t_error', 'radius_50', 'radius_50_error',
+    'radius_c', 'radius_c_error', 'radius_t', 'radius_t_error', 'parallax',
+    'parallax_error', 'inverse_parallax', 'inverse_parallax_l68',
+    'inverse_parallax_u68', 'distance', 'distance_error', 'pmra',
+    'pmra_error', 'pmdec', 'pmdec_error', 'v_internal_tangential',
+    'v_internal_tangential_error', 'parameter_inference_mode',
+])
+
+
 class ClusteringAlgorithm(Pipeline):
     def __init__(self,
                  algorithm: Callable,
@@ -317,15 +332,21 @@ class ClusteringAlgorithm(Pipeline):
             third_data = self._open(self.input_paths[self.third_input_name][input_number])
             return [main_data, third_data]
 
-    def apply(self):
-        """Applies an algorithm to the pre-specified clusters."""
+    def apply(self, start: int = 0):
+        """Applies an algorithm to the pre-specified clusters.
+
+        Args:
+            start (int): the cluster number in self.names to start with.
+                Default: 0
+
+        """
         completed_steps = 0
         total_steps = len(self.input_paths['cut']) * self.n_kwarg_sets
 
         iteration_start = datetime.datetime.now()
 
         # Loop over all the different fields
-        for input_number, a_field_name, in enumerate(self.names):
+        for input_number, a_field_name, in enumerate(self.names[start:], start=start):
 
             a_data_gaia_path = self.input_paths['cut'][input_number]
             a_data_rescaled_path = self.input_paths['rescaled'][input_number]
@@ -445,7 +466,10 @@ class ClusteringAlgorithm(Pipeline):
                 parameter_frames_to_concatenate.append(pd.DataFrame(a_dict, index=[0]))
 
             # Concatenate into a DataFrame
-            final_cluster_info = pd.concat(parameter_frames_to_concatenate, ignore_index=True)
+            if len(parameter_frames_to_concatenate) > 0:
+                final_cluster_info = pd.concat(parameter_frames_to_concatenate, ignore_index=True)
+            else:
+                final_cluster_info = _blank_statistics_dataframe.copy()
 
             # Add extra info if desired
             if self._n_extra_info > 0:
@@ -460,7 +484,8 @@ class ClusteringAlgorithm(Pipeline):
 
             # Concatenate into a dataframe!
             if self._save_cluster_info:
-                final_cluster_info.to_csv(self.output_paths['cluster_list'] / Path(f"{joined_name}_cluster_list.csv"))
+                final_cluster_info.to_csv(self.output_paths['cluster_list'] / Path(f"{joined_name}_cluster_list.csv"),
+                                          index=False)
 
         return n_clusters
 
