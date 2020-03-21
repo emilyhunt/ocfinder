@@ -145,7 +145,8 @@ class DBSCANPreprocessor(Pipeline):
                 make_diagnostic_plot=True,
                 figure_title=f"nearest neighbour distances for field {a_name}",
                 number_of_derivatives=2,
-                save_name=self.output_paths['plots'] / Path(f"{a_name}_nn_distances.png")
+                save_name=self.output_paths['plots'] / Path(f"{a_name}_nn_distances.png"),
+                show_figure=False
             )
 
             # Save the data
