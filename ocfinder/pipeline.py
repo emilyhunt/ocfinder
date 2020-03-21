@@ -340,7 +340,7 @@ class ClusteringAlgorithm(Pipeline):
                 Default: 0
 
         """
-        completed_steps = 0
+        completed_steps = start
         total_steps = len(self.input_paths['cut']) * self.n_kwarg_sets
 
         iteration_start = datetime.datetime.now()

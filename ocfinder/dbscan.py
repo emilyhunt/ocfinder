@@ -76,16 +76,23 @@ class DBSCANPreprocessor(Pipeline):
         # And save!
         pd.DataFrame(data_to_save, index=[0]).to_csv(epsilon_filename, index=False)
 
-    def apply(self):
-        """Applies the pre-processor."""
-        completed_steps = 0
+    def apply(self, start: int = 0):
+        """Applies the pre-processor.
+
+        Args:
+            start (int): the cluster number in self.names to start with.
+                Default: 0
+
+        """
+        completed_steps = start
         total_steps = len(self.names)
         iteration_start = datetime.datetime.now()
 
         # Cycle over each cluster, applying all of the required pre-processing steps
-        for a_path, a_name in zip(self.input_paths['rescaled'], self.names):
+        for a_path, a_name in zip(self.input_paths['rescaled'][start:], self.names[start:]):
 
             if self.verbose:
+                print(f"-- {datetime.datetime.today()}")
                 print(f"Working on field {a_name}...")
                 print("  opening the field's data")
 
