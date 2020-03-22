@@ -333,7 +333,12 @@ class ClusteringAlgorithm(Pipeline):
 
     def _get_clusterer_args(self, path: Path, input_number):
         """Cheeky hack that lets me use an extra input argument if necessary on certain functions (like GMMs)."""
-        main_data = self._open(path).values
+        # Feather rescaled files have useless column names which we drop now
+        if path.suffix == '.feather':
+            main_data = self._open(path).values
+        # Otherwise, we keep the file (e.g. if it's a scipy csr sparse matrix)
+        else:
+            main_data = self._open(path)
 
         if self.third_input_name is None:
             return [main_data]
