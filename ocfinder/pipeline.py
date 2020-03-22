@@ -9,6 +9,7 @@ import pandas as pd
 import gc
 import datetime
 import matplotlib.pyplot as plt
+from scipy import sparse
 
 import warnings
 
@@ -193,18 +194,26 @@ class Pipeline(object):
             return pd.read_json(path)
         elif mode == '.csv':
             return pd.read_csv(path)
+        elif mode == '.feather':
+            return pd.read_feather(path)
+        elif mode == '.npy':
+            return np.load(str(path.resolve()))
         elif mode == '.npz':
             numpy_files = np.load(str(path.resolve()))
 
-            if len(numpy_files.files) != 1:
+            # Deal with if it's actually a sparse matrix
+            if numpy_files.files == ['indices', 'indptr', 'format', 'shape', 'data']:
+                del numpy_files
+                return sparse.load_npz(str(path.resolve()))
+
+            # Raise an error if there's more than one file here
+            elif len(numpy_files.files) != 1:
                 raise NotImplementedError(f"Only loading of singular arrays is supported, but the .npz file passed "
                                           f"at {path} has 2+ or 0 arrays.")
+
+            # Or, just return our friend
             else:
                 return numpy_files[numpy_files.files[0]]
-        elif mode == '.npy':
-            return np.load(str(path.resolve()))
-        elif mode == '.feather':
-            return pd.read_feather(path)
         else:
             raise ValueError(f"Specified file type {mode} not supported!")
 
