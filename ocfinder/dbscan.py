@@ -177,8 +177,11 @@ default_dbscan_kwargs = {
 }
 
 
-def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], data_epsilon: pd.DataFrame,
-               epsilon_value: str = 'acg_5', **kwargs_for_algorithm):
+def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray],
+               data_epsilon: pd.DataFrame,
+               epsilon_value: str = 'acg_5',
+               min_cluster_size: int = 5,
+               **kwargs_for_algorithm):
     """Runs DBSCAN on a field, given an arbitrary number of epsilon values to try.
 
     Args:
@@ -187,6 +190,9 @@ def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], data_epsilon: pd.Data
             array of shape (n_samples, n_features), and nearest neighbor analysis will be performed manually.
         data_epsilon (pd.DataFrame): a DataFrame of shape (doesn't matter lol, 1) containing epsilon estimates to use.
         epsilon_value (str): the key into data_epsilon to use as our epsilon value.
+            Default: 'acg_5'
+        min_cluster_size (int): minimum cluster size to save.
+            Default: 5
         **kwargs_for_algorithm: additional kwargs to pass to sklearn.cluster.DBSCAN.
 
     Returns:
@@ -203,7 +209,16 @@ def run_dbscan(data: Union[sparse.csr_matrix, np.ndarray], data_epsilon: pd.Data
     else:
         clusterer = DBSCAN(metric='precomputed', **dbscan_kwargs)
 
-    return clusterer.fit_predict(data), None
+    labels = clusterer.fit_predict(data)
+
+    # Work out which clusters are too small
+    unique_values, counts = np.unique(labels, return_counts=True)
+    bad_unique_values = unique_values[counts < min_cluster_size]
+
+    # Set any bad labels back to just being the field, aka -1
+    labels[np.isin(labels, bad_unique_values)] = -1
+
+    return labels, None
 
 
 class DBSCANPipeline(ClusteringAlgorithm):
