@@ -1,3 +1,3 @@
 field_name,run_name,algorithm,time,n_clusters,parameters
-Blanco_1,1,run_hdbscan,0.429806,3,"{'min_cluster_size': 40, 'min_samples': 10}"
-Blanco_1,2,run_hdbscan,4.019641,2,"{'min_cluster_size': 80, 'min_samples': 10}"
+0000,1,run_hdbscan,3.432509,4,"{'min_cluster_size': 40, 'min_samples': 10}"
+0000,2,run_hdbscan,1.175181,0,"{'min_cluster_size': 80, 'min_samples': 10}"

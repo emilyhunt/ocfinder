@@ -1,2 +1,8 @@
 *.pyc
 __pycache__/
+*.pickle
+*.pkl
+*.json
+*.csv
+*.feather
+*.png

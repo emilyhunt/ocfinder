@@ -76,7 +76,6 @@ class Pipeline(object):
 
             # List of inputs
             if type(input_dirs[a_key]) == list:
-                print("list")
                 self.input_paths[a_key] = input_dirs[a_key]
 
             # Input is a directory
@@ -307,11 +306,15 @@ class ClusteringAlgorithm(Pipeline):
             self.n_kwarg_sets = len(user_kwargs)
             self.algorithm_kwargs = user_kwargs
 
-        # Remember whether or not an extra input is needed
-        if len(required_input_keys) == 3:
-            self.third_input_name = required_input_keys[2]
+        # Try to infer whether or not an extra input is needed (this can always, of course, be overwritten in the child
+        # class if doing this isn't so simple)
+        if len(required_input_keys) >= 3:
+            self.extra_input_names = required_input_keys[2:]
         else:
-            self.third_input_name = None
+            self.extra_input_names = None
+
+        # We also allow child classes to request the pixel_id be sent from an internal list
+        self.pixel_ids = []
 
         # Infer what kind of output the algorithm has
         self._save_probabilities = 'probabilities' in required_output_keys
@@ -340,18 +343,79 @@ class ClusteringAlgorithm(Pipeline):
         else:
             main_data = self._open(path)
 
-        if self.third_input_name is None:
-            return [main_data]
-        else:
-            third_data = self._open(self.input_paths[self.third_input_name][input_number])
-            return [main_data, third_data]
+        to_return = [main_data]
 
-    def apply(self, start: int = 0):
+        # Grab any extra inputs if necessary
+        if self.extra_input_names is None:
+            return to_return
+        else:
+            for an_input in self.extra_input_names:
+
+                # Deal with any special hard-coded cases
+                # (don't @ me about how bad this code is please)
+                if an_input == 'pixel_id':
+                    to_return.append(self.pixel_ids[input_number])
+                else:
+                    to_return.append(self._open(self.input_paths[an_input][input_number]))
+
+            return to_return
+
+    def change_run_order(self, key_to_change_on: str, *extra_arrays_to_sort,
+                         mode: str = 'filesize', ascending: bool = True):
+        """By default, input files are sorted based on their name. But what if you'd rather run in order of file size,
+        so that the smallest (and hence safest) files are ran on first? This function has your back! Yay!
+
+        Notes:
+            Assumes that all inputs have the same length, which should always be the case for all child classes anyway.
+
+        Args:
+            key_to_change_on (str): key into self.input_dirs to base the sort on. The input_dir should be a member of
+                self.input_paths.keys().
+            extra_arrays_to_sort (args): any other arrays that support numpy indexing that you'd like this function
+                to sort and return.
+            mode (str): attribute to sort on. May be one of:
+                - 'filesize'
+                - 'name'
+                Default: 'filesize'
+            ascending (bool): whether the sort should be in ascending order (True) or descending order (False).
+                Default: True
+
+        """
+        if key_to_change_on not in self.input_paths.keys():
+            raise ValueError("key_to_change_on must be in the list of input paths, self.input_paths!")
+
+        # Grab the mode
+        if mode == 'filesize':
+            attribute_to_sort = [x.stat().st_size for x in self.input_paths[key_to_change_on]]
+        elif mode == 'name':
+            attribute_to_sort = [x.stem for x in self.input_paths[key_to_change_on]]
+        else:
+            raise ValueError("selected mode is not supported! Must be one of 'filesize' or 'name'.")
+
+        # Get the sort args, in ascending or descending order
+        if ascending:
+            sort_order = np.argsort(attribute_to_sort)
+        else:
+            sort_order = np.argsort(attribute_to_sort)[::-1]
+
+        # Apply to the internals
+        for a_key in self.input_paths.keys():
+            self.input_paths[a_key] = self.input_paths[a_key][sort_order]
+
+        self.names = self.names[sort_order]
+
+        # Also to pixel_ids, which for some methods is more than just a blank list and is actually used
+        if len(self.pixel_ids) != 0:
+            self.pixel_ids = self.pixel_ids[sort_order]
+
+    def apply(self, start: int = 0, initial_run_number: int = 1):
         """Applies an algorithm to the pre-specified clusters.
 
         Args:
             start (int): the cluster number in self.names to start with.
                 Default: 0
+            initial_run_number (int): the run number to start with. Useful to change when running over the same dataset
+                but with different parameters.
 
         """
         completed_steps = start
@@ -366,7 +430,7 @@ class ClusteringAlgorithm(Pipeline):
             a_data_rescaled_path = self.input_paths['rescaled'][input_number]
 
             # Also loop over all of the different specified parameter sets
-            for i_parameter_set, an_algorithm_kwargs in enumerate(self.algorithm_kwargs, start=1):
+            for i_parameter_set, an_algorithm_kwargs in enumerate(self.algorithm_kwargs, start=initial_run_number):
 
                 if self.verbose:
                     print(f"-- {datetime.datetime.today()}")
@@ -409,7 +473,8 @@ class ClusteringAlgorithm(Pipeline):
             data_gaia (pd.DataFrame): Gaia data. You know the drill by now.
             algorithm_return (list, tuple): return from the algorithm. At the very least should have length 2, where
                 the first element is the labels and the second is the probabilities or None.
-            name (str): field_name of the clustering result currently being studied, e.g. "0042_dbscan_acg"
+            field_name (str): field_name of the clustering result currently being studied, e.g. "0042_dbscan_acg"
+            run_name (str): run_name of the parameter set in use.
 
         Returns:
             n_clusters (int): the number of clusters found.
@@ -692,7 +757,8 @@ class Preprocessor(Pipeline):
 
 
 default_result_plotting_kwargs = {
-    'show_figure': False
+    'show_figure': False,
+    'make_parallax_plot': True
 }
 
 
@@ -917,7 +983,12 @@ class ResultPlotter(Pipeline):
             raise ValueError("if threshold is specified then threshold_key must be specified too!")
 
         # Get the runtime metadata file
-        data_runs = self._open(self.input_paths['times'][0])
+        warnings.warn("Runtime file reading is currently broken, as field_name is not automatically cast as a string. "
+                      "The fix was to define the input more here with pandas.read_csv, but that means that even a small"
+                      " implementation change upstream will break this function! Stay safe.")
+        data_runs = pd.read_csv(self.input_paths['times'][0],
+                                dtype={'field_name': str,
+                                       'run_name': str,})
 
         # Cycle over fields and runs
         last_field_name = 'if you get a match with this string, then honestly you win a prize'

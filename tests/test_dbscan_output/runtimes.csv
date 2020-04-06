@@ -1,2 +1,0 @@
-field_name,run_name,algorithm,time,n_clusters,parameters
-Blanco_1,1,run_dbscan,0.112096,2,{}

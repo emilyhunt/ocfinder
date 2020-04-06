@@ -6,12 +6,10 @@ import ocfinder.dbscan
 # import ocfinder.upmask  # Not all machines using this code have R installed, for now...
 import ocfinder.gmm
 
-import pickle
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 
 path_to_blanco_1 = Path('./test_data/blanco_1_gaia_dr2_gmag_18_cut.pickle')
 path_to_split_data = Path('./test_data/healpix_pixel/')
@@ -72,7 +70,7 @@ def test_preprocessor_split():
                                                   input_dirs,
                                                   input_patterns={'data': "*"},
                                                   output_dirs=output_dirs,
-                                                  cuts={'parallax': [1, np.inf]},
+                                                  cuts={'phot_g_mean_mag': [-np.inf, 18]},
                                                   pixel_ids=[12238],
                                                   split_files=True)
     preprocessor.apply()
@@ -82,8 +80,8 @@ def test_preprocessor_split():
 
 def test_hdbscan():
     """Tests the HDBSCAN usage of the ClusteringAlgorithm superclass et al."""
-    input_dirs = {'cut': Path('./test_preprocessor_output/Blanco_1_cut.feather'),
-                  'rescaled': Path('./test_preprocessor_output/Blanco_1_rescaled.feather')}
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'rescaled': Path('./test_preprocessor_output_healpix/0000_rescaled.feather'),}
     output_dirs = {'labels': Path('./test_hdbscan_output'),
                    'probabilities': Path('./test_hdbscan_output'),
                    'cluster_data': Path('./test_hdbscan_output'),
@@ -91,7 +89,7 @@ def test_hdbscan():
                    'times': Path('./test_hdbscan_output')}
 
     industrial_strength_clustering_pipeline = ocfinder.hdbscan.HDBSCANPipeline(
-        ['Blanco_1'],
+        ['0000'],
         input_dirs,
         output_dirs=output_dirs,
         user_kwargs=[{'min_cluster_size': 40, 'min_samples': 10},
@@ -123,7 +121,7 @@ def test_dbscan():
     """Tests the DBSCAN usage of the ClusteringAlgorithm superclass et al."""
     input_dirs = {'cut': Path('./test_preprocessor_output/Blanco_1_cut.feather'),
                   'rescaled': Path('./test_preprocessor_output/Blanco_1_rescaled.feather'),
-                  'epsilon': Path('./test_dbscan_output/epsilon_values.csv')}
+                  'epsilon': Path('./test_dbscan_output/Blanco_1_epsilon.csv')}
     output_dirs = {'labels': Path('./test_dbscan_output'),
                    'cluster_data': Path('./test_dbscan_output'),
                    'cluster_list': Path('./test_dbscan_output'),
@@ -141,8 +139,85 @@ def test_dbscan():
 
 def test_gmm():
     """Tests the Gaussian Mixture Model (GMM) usage of the ClusteringAlgorithm superclass et al."""
-    # Todo
-    pass
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'rescaled': Path('./test_preprocessor_output_healpix/0000_rescaled.feather'),
+                  'scaler': Path('./test_preprocessor_output_healpix/0000_scaler.pickle')}
+    output_dirs = {'partitioned_results': Path('./test_gmm_output'),
+                   'mixture_parameters': Path('./test_gmm_output'),
+                   'partition_plots': Path('./test_gmm_output'),
+                   'times': Path('./test_gmm_output')}
+    user_kwargs = [
+        {'stars_per_component': 100, 'covariance_type': 'diag'},
+        {'stars_per_component': [800, 400, 100], 'covariance_type': 'diag'},
+        {'stars_per_component': 800, 'covariance_type': 'diag'},
+    ]
+
+    wow_that_sure_is_a_lot_of_gaussians = ocfinder.gmm.GMMPipeline(
+        ['0000'],
+        [12238],
+        input_dirs,
+        output_dirs=output_dirs,
+        verbose=True,
+        user_kwargs=user_kwargs
+    )
+
+    wow_that_sure_is_a_lot_of_gaussians.apply()
+
+
+def test_gmm_postprocessor():
+    """Tests the final postprocessing step of the GMM system. Time for happiness and joy!"""
+    """Tests the Gaussian Mixture Model (GMM) usage of the ClusteringAlgorithm superclass et al."""
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'partitioned_results': Path('./test_gmm_output'),
+                  'mixture_parameters': Path('./test_gmm_output')}
+    output_dirs = {'labels': Path('./test_gmm_postprocessor_output'),
+                   'probabilities': Path('./test_gmm_postprocessor_output'),
+                   'cluster_data': Path('./test_gmm_postprocessor_output'),
+                   'cluster_list': Path('./test_gmm_postprocessor_output')}
+    input_patterns = {'partitioned_results': '*_results.feather',
+                      'mixture_parameters': '*mixture_parameters.csv'}
+
+    wow_that_sure_is_a_lot_of_gaussians = ocfinder.gmm.GMMPostProcessor(
+        ['0000'],
+        input_dirs,
+        input_patterns=input_patterns,
+        output_dirs=output_dirs,
+        verbose=True,
+        max_cluster_size_to_save=10000,
+    )
+
+    wow_that_sure_is_a_lot_of_gaussians.apply()
+
+    # Let's also do some plotting!
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'labels': Path('./test_gmm_postprocessor_output'),
+                  'probabilities': Path('./test_gmm_postprocessor_output'),
+                  'cluster_list': Path('./test_gmm_postprocessor_output'),
+                  'times': Path('./test_gmm_output/runtimes.csv')}
+    input_patterns = {'labels': '*_labels.feather',
+                      'probabilities': '*_probs.feather',
+                      'cluster_list': '*_cluster_list.csv', }
+
+    output_dirs = {'plots': Path('./test_gmm_postprocessor_output/plots')}
+
+    kwargs_for_plotting_algorithm = {
+        'cmd_plot_y_limits': [8, 16],
+        'dpi': 300,
+        'cluster_marker_radius': (2., 2., 2., 2.),
+    }
+
+    industrial_strength_plotting_pipeline = ocfinder.pipeline.ResultPlotter(
+        ['0000'],
+        input_dirs,
+        input_patterns=input_patterns,
+        output_dirs=output_dirs,
+        **kwargs_for_plotting_algorithm
+    )
+
+    industrial_strength_plotting_pipeline.apply(
+        plot_clusters_individually=False, threshold=True, threshold_comparison='==', threshold_key='valid_total')
+
+    return wow_that_sure_is_a_lot_of_gaussians
 
 
 def test_upmask():
@@ -152,7 +227,7 @@ def test_upmask():
 
 
 def test_plotting():
-    input_dirs = {'cut': Path('./test_preprocessor_output/Blanco_1_cut.feather'),
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
                   'labels': Path('./test_hdbscan_output'),
                   'probabilities': Path('./test_hdbscan_output'),
                   'cluster_list': Path('./test_hdbscan_output'),
@@ -163,13 +238,13 @@ def test_plotting():
     output_dirs = {'plots': Path('./test_plots')}
 
     kwargs_for_plotting_algorithm = {
-        'cmd_plot_y_limits': [8, 18],
+        'cmd_plot_y_limits': [8, 16],
         'dpi': 300,
-        'cluster_marker_radius': (2., 2., 2.),
+        'cluster_marker_radius': (2., 2., 2., 2.),
     }
 
     industrial_strength_plotting_pipeline = ocfinder.pipeline.ResultPlotter(
-        ['Blanco_1'],
+        ['0000'],
         input_dirs,
         input_patterns=input_patterns,
         output_dirs=output_dirs,
@@ -187,5 +262,7 @@ if __name__ == '__main__':
     # pipe, gaia = test_pipeline()
     # pipe, gaia = test_preprocessor()
     # test_hdbscan()
-    test_dbscan_preprocessor()
+    # test_dbscan_preprocessor()
     # pipe = test_plotting()
+    test_gmm()
+    post = test_gmm_postprocessor()
