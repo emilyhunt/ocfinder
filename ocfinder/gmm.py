@@ -6,6 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import datetime
 import gc
+import sys
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import RobustScaler, StandardScaler
 
@@ -257,6 +258,10 @@ def run_gmm(data: np.ndarray,
     # Clusterer time!
     last_highest_label = 0
     for i_partition in range(partitioner.total_partitions):
+        # Tell the user what the fuck is going on!!!
+        sys.stdout.write(f"\r    partition {i_partition} of {partitioner.total_partitions}")
+        sys.stdout.flush()
+
         # Grab the partition and the number of stars
         partition = partitioner.get_partition(i_partition, return_data=False)
         n_components = partitioner.get_n_components(minimum_n_components=minimum_n_components)
@@ -284,6 +289,10 @@ def run_gmm(data: np.ndarray,
             np.unique(labels[i_partition], return_counts=True)
 
         last_highest_label = np.max(labels[i_partition]) + 1
+
+    # Last update to the user. Important that it has the \n, which means we finally get a goddamn new line
+    sys.stdout.write(f"\r    final partition is complete =)\n")
+    sys.stdout.flush()
 
     return labels, probabilities, mixture_parameters, partitioner
 
