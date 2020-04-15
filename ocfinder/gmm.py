@@ -604,6 +604,8 @@ class GMMPostProcessor(Pipeline):
 
             joined_name = f"{field_name}_{run_name}"
 
+            print(f"  joined name: {joined_name}")
+
             # Identify which clusters are good and start off our cluster_list DataFrame to save
             data_cluster, valid_clusters = self._apply_cuts_to_one_field(mixture_parameters, field_name, run_name)
 
