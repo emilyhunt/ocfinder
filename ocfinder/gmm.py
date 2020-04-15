@@ -259,7 +259,7 @@ def run_gmm(data: np.ndarray,
     last_highest_label = 0
     for i_partition in range(partitioner.total_partitions):
         # Tell the user what the fuck is going on!!!
-        sys.stdout.write(f"\r    partition {i_partition} of {partitioner.total_partitions}")
+        sys.stdout.write(f"\r    partition {i_partition+1} of {partitioner.total_partitions}")
         sys.stdout.flush()
 
         # Grab the partition and the number of stars
@@ -268,7 +268,7 @@ def run_gmm(data: np.ndarray,
 
         # Make a new clusterer and fit it
         clusterer = GaussianMixture(n_components=n_components, **gmm_kwargs)
-        labels.append(clusterer.fit_predict(data[partition]) + last_highest_label)
+        labels.append(clusterer.fit_predict(data[partition]))
         probabilities.append(np.max(clusterer.predict_proba(data[partition]), axis=1))
 
         # We also want parameters of the mixtures that we can use for cutting later in the original co-ordinate space
@@ -285,9 +285,17 @@ def run_gmm(data: np.ndarray,
         mixture_parameters[i_partition]['dec'] = dec
         mixture_parameters[i_partition]['valid_pixel'] = validities
         mixture_parameters[i_partition]['partition'] = i_partition
-        mixture_parameters[i_partition]['cluster_label'], mixture_parameters[i_partition]['n_stars'] = \
-            np.unique(labels[i_partition], return_counts=True)
+        mixture_parameters[i_partition]['cluster_label'] = np.arange(last_highest_label,
+                                                                     last_highest_label + ra.shape[0])
 
+        # We have to be a little bit more careful with the number of stars per mixture, as sometimes, mixtures won't
+        # contain any stars at all.
+        indexes_with_stars, counts = np.unique(labels[i_partition], return_counts=True)
+        mixture_parameters[i_partition]['n_stars'] = 0
+        mixture_parameters[i_partition].loc[indexes_with_stars, 'n_stars'] = counts
+
+        # Lastly, change up the labels for the clusters to carry on consecutively from the last round
+        labels[i_partition] += last_highest_label
         last_highest_label = np.max(labels[i_partition]) + 1
 
     # Last update to the user. Important that it has the \n, which means we finally get a goddamn new line
