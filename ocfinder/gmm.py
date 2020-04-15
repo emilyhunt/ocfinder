@@ -467,6 +467,9 @@ class GMMPostProcessor(Pipeline):
                 Default: True
 
         """
+        # We cast names as a list, because this class requires it to be one to use the .index method later
+        names = list(names)
+
         super().__init__(names,
                          input_dirs,
                          input_patterns=input_patterns, output_dirs=output_dirs, verbose=verbose,
