@@ -575,12 +575,16 @@ class GMMPostProcessor(Pipeline):
 
         return cluster_statistics_frame, valid_clusters
 
-    def apply(self, start: int = 0):
+    def apply(self, start: int = 0, probability_tolerance: float = 1e-100):
         """Applies the post-processing to the selected clusters.
 
         Args:
             start (int): the cluster number in self.names to start with.
                 Default: 0
+            probability_tolerance (float): the sum of all probabilities for a cluster must be larger than this (small)
+                number for us to decide to calculate stats. Prevents divisions by zero in ocelot in the very unlikely
+                case of all member stars of a cluster having a zero probability.
+                Default: 1e-100
 
         """
         completed_steps = start
@@ -651,12 +655,14 @@ class GMMPostProcessor(Pipeline):
 
                 baby_probabilities = probabilities[good_stars]
 
-                # Run ocelot and pop it into the list of parameter frames
-                a_series = pd.Series(ocelot.calculate.all_statistics(
-                    baby_data_gaia, membership_probabilities=baby_probabilities))
+                # Run ocelot and pop it into the list of parameter frames, albeit only if the probabilities are valid
+                if np.sum(baby_probabilities) > probability_tolerance:
 
-                cluster_in_data_cluster = data_cluster.index[data_cluster['cluster_label'] == a_cluster].to_numpy()[0]
-                data_cluster.loc[cluster_in_data_cluster, a_series.index] = a_series
+                    a_series = pd.Series(ocelot.calculate.all_statistics(
+                        baby_data_gaia, membership_probabilities=baby_probabilities))
+
+                    cluster_in_data_cluster = data_cluster.index[data_cluster['cluster_label'] == a_cluster].to_numpy()[0]
+                    data_cluster.loc[cluster_in_data_cluster, a_series.index] = a_series
 
                 # Save the small data_gaia view
                 if a_series['n_stars'] < self._max_cluster_size_for_stats:
