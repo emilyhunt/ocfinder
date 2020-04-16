@@ -285,6 +285,7 @@ def run_gmm(data: np.ndarray,
         mixture_parameters[i_partition]['dec'] = dec
         mixture_parameters[i_partition]['valid_pixel'] = validities
         mixture_parameters[i_partition]['partition'] = i_partition
+        mixture_parameters[i_partition]['partition_parallax_range'] = partitioner.current_parallax_range
         mixture_parameters[i_partition]['cluster_label'] = np.arange(last_highest_label,
                                                                      last_highest_label + ra.shape[0])
 
@@ -604,7 +605,8 @@ class GMMPostProcessor(Pipeline):
 
             joined_name = f"{field_name}_{run_name}"
 
-            print(f"  joined name: {joined_name}")
+            if self.verbose:
+                print(f"  joined name: {joined_name}")
 
             # Identify which clusters are good and start off our cluster_list DataFrame to save
             data_cluster, valid_clusters = self._apply_cuts_to_one_field(mixture_parameters, field_name, run_name)
