@@ -285,7 +285,8 @@ def run_gmm(data: np.ndarray,
         mixture_parameters[i_partition]['dec'] = dec
         mixture_parameters[i_partition]['valid_pixel'] = validities
         mixture_parameters[i_partition]['partition'] = i_partition
-        mixture_parameters[i_partition]['partition_parallax_range'] = partitioner.current_parallax_range
+        mixture_parameters[i_partition]['partition_parallax_l'] = partitioner.current_parallax_range[0]
+        mixture_parameters[i_partition]['partition_parallax_h'] = partitioner.current_parallax_range[1]
         mixture_parameters[i_partition]['cluster_label'] = np.arange(last_highest_label,
                                                                      last_highest_label + ra.shape[0])
 
@@ -553,14 +554,15 @@ class GMMPostProcessor(Pipeline):
         joined_name = f"{field_name}_{run_name}"
 
         # We make it with or without 'partition_parallax_range' for backwards-compatibility
-        if 'partition_parallax_range' in mixture_parameters.keys():
+        if 'partition_parallax_l' in mixture_parameters.keys():
             cluster_statistics_frame = pd.DataFrame({
                 'field': field_name,
                 'run': run_name,
                 'cluster_label': mixture_parameters['cluster_label'],
                 'cluster_id': [joined_name + f"_{x}" for x in mixture_parameters['cluster_label']],
                 'partition': mixture_parameters['partition'],
-                'partition_parallax_range': mixture_parameters['partition_parallax_range'],
+                'partition_parallax_l': mixture_parameters['partition_parallax_l'],
+                'partition_parallax_h': mixture_parameters['partition_parallax_h'],
                 'n_stars': mixture_parameters['n_stars'],
                 'valid_pixel': mixture_parameters['valid_pixel'],
             })
