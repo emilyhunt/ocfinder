@@ -551,15 +551,29 @@ class GMMPostProcessor(Pipeline):
         """Cycles over a field, working out which clusters are and aren't crap."""
         # First off, let's make a new DataFrame to hold all information we have on it
         joined_name = f"{field_name}_{run_name}"
-        cluster_statistics_frame = pd.DataFrame({
-            'field': field_name,
-            'run': run_name,
-            'cluster_label': mixture_parameters['cluster_label'],
-            'cluster_id': [joined_name + f"_{x}" for x in mixture_parameters['cluster_label']],
-            'partition': mixture_parameters['partition'],
-            'n_stars': mixture_parameters['n_stars'],
-            'valid_pixel': mixture_parameters['valid_pixel'],
-        })
+
+        # We make it with or without 'partition_parallax_range' for backwards-compatibility
+        if 'partition_parallax_range' in mixture_parameters.keys():
+            cluster_statistics_frame = pd.DataFrame({
+                'field': field_name,
+                'run': run_name,
+                'cluster_label': mixture_parameters['cluster_label'],
+                'cluster_id': [joined_name + f"_{x}" for x in mixture_parameters['cluster_label']],
+                'partition': mixture_parameters['partition'],
+                'partition_parallax_range': mixture_parameters['partition_parallax_range'],
+                'n_stars': mixture_parameters['n_stars'],
+                'valid_pixel': mixture_parameters['valid_pixel'],
+            })
+        else:
+            cluster_statistics_frame = pd.DataFrame({
+                'field': field_name,
+                'run': run_name,
+                'cluster_label': mixture_parameters['cluster_label'],
+                'cluster_id': [joined_name + f"_{x}" for x in mixture_parameters['cluster_label']],
+                'partition': mixture_parameters['partition'],
+                'n_stars': mixture_parameters['n_stars'],
+                'valid_pixel': mixture_parameters['valid_pixel'],
+            })
 
         # Now, for every specified cut type, we'll add it to the cluster statistics frame
         validity_strings = ['valid_pixel']
