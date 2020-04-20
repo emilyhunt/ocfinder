@@ -32,19 +32,31 @@ def tcg_proper_motion_cut(mixture_parameters, cut_parameters):
 
 
 def radius_cut(mixture_parameters, cut_parameters):
-    """Simple radius cut based on a max radius for a cluster, defined in parsecs.
+    """Simple radius cut based on a max radius for a cluster, defined in parsecs. There's also a minimum radius in
+    degrees, meaning that clusters with a negative parallax (that are far away but hard to gleam a distance for) still
+    have a defined radius.
 
     Required cut_parameters to use:
-        max_radius (pc)
-        max_distance (pc) - the maximum distance to calculate for.
+        min_radius_deg (degrees)
+        max_radius_pc (pc)
     """
-    distances = np.clip(1000 / mixture_parameters['parallax'], 0, cut_parameters['max_distance'])
-    max_radius = np.arctan(cut_parameters['max_radius'] / distances) * 180 / np.pi
+    # Calculate expected cut values in degrees (for positive parallaxes) based on the maximum radius in parsecs
+    cut_values = np.where(
+        mixture_parameters['parallax'] > 0,
+        np.arctan(cut_parameters['max_radius_pc'] / (1000 / mixture_parameters['parallax'])) * 180 / np.pi,
+        cut_parameters['min_radius_deg'])
 
-    radius_dispersion = np.sqrt(mixture_parameters['ra_std'].to_numpy()**2
-                                + mixture_parameters['dec_std'].to_numpy()**2)
+    # Where these cut values are too small, we'll set them to the minimum radius in degrees
+    cut_values = np.where(
+        cut_values < cut_parameters['min_radius_deg'],
+        cut_parameters['min_radius_deg'],
+        cut_values)
 
-    return radius_dispersion < max_radius
+    # Finally, let's estimate the radius dispersion from the mixture's standard deviations and return a comparison
+    radius_dispersion = np.sqrt(mixture_parameters['lon_std'].to_numpy()**2
+                                + mixture_parameters['lat_std'].to_numpy()**2)
+
+    return radius_dispersion < cut_values
 
 
 def size_cut(mixture_parameters, cut_parameters):
@@ -57,48 +69,6 @@ def size_cut(mixture_parameters, cut_parameters):
     not_too_small = mixture_parameters['n_stars'] > cut_parameters['min_size']
     not_too_big = mixture_parameters['n_stars'] < cut_parameters['max_size']
     return np.asarray(np.logical_and(not_too_big, not_too_small))
-
-
-def apply_radius_cut(data_gaia, labels, cuts):
-    # Todo fstring
-    ratios = np.zeros(cuts.shape[0])
-    successes = np.zeros(cuts.shape[0], dtype=bool)
-    for i, (a_label, a_cut) in enumerate(zip(labels, cuts)):
-        matches = labels == a_label
-        ra = np.median(data_gaia.loc[matches, 'ra'])
-        dec = np.median(data_gaia.loc[matches, 'dec'])
-        radii = np.sqrt((data_gaia.loc[matches, 'ra'] - ra) ** 2 + (data_gaia.loc[matches, 'dec'] - dec) ** 2)
-
-        ratios[i] = np.max(radii) / a_cut
-        successes[i] = ratios[i] <= 1.
-
-    return ratios, successes
-
-
-def calculate_cuts(data_gaia, labels, mean, std, counts, cut_parameters):
-    # Todo re-factor to not use radius cut (or have a way to turn it off) & fstring
-
-    # Now, let's calculate the cuts we want
-    radius_cuts = radius_cut(mean, std, cut_parameters)
-    pm_cuts = tcg_proper_motion_cut(mean, std, cut_parameters)
-
-    # And let's calculate dispersions too
-    radius_dispersion = np.sqrt(std['ra'] ** 2 + std['dec'] ** 2)
-    pm_dispersion = np.sqrt(std['pmra'] ** 2 + std['pmdec'] ** 2)
-
-    # And lastly, we can see which GMMs are compatible with our cuts
-    ratios = {}
-    good_clusters = {}
-
-    ratios['radius'], good_clusters['radius'] = apply_radius_cut(data_gaia, labels, radius_cuts)
-    ratios['pm'] = pm_dispersion / pm_cuts
-
-    good_clusters['pm'] = ratios['pm'] <= 1.
-    good_clusters['size'] = np.logical_and(counts >= cut_parameters['min_size'], counts <= cut_parameters['max_size'])
-    good_clusters['total'] = np.logical_and(np.logical_and(
-        good_clusters['radius'], good_clusters['pm']), good_clusters['size'])
-
-    return good_clusters, ratios
 
 
 class ValueRemapper:
@@ -425,12 +395,15 @@ class GMMPipeline(ClusteringAlgorithm):
 
 default_cuts = {
     'proper_motion': tcg_proper_motion_cut,
+    'radius': radius_cut,
     'size': size_cut,
 }
 
 default_cut_parameters = {
     'min_size': 10,
-    'max_size': np.inf
+    'max_size': np.inf,
+    'min_radius_deg': 0.075,
+    'max_radius_pc': 7.5,
 }
 
 
@@ -684,13 +657,13 @@ class GMMPostProcessor(Pipeline):
                     cluster_in_data_cluster = data_cluster.index[data_cluster['cluster_label'] == a_cluster].to_numpy()[0]
                     data_cluster.loc[cluster_in_data_cluster, a_series.index] = a_series
 
-                # Save the small data_gaia view
-                if a_series['n_stars'] < self._max_cluster_size_for_stats:
+                    # Save the small data_gaia view
+                    if a_series['n_stars'] < self._max_cluster_size_for_stats:
 
-                    baby_data_gaia['probability'] = baby_probabilities
+                        baby_data_gaia['probability'] = baby_probabilities
 
-                    baby_data_gaia.to_csv(
-                        self.output_paths['cluster_data'] / Path(f"{cluster_id}_cluster_data.csv"))
+                        baby_data_gaia.to_csv(
+                            self.output_paths['cluster_data'] / Path(f"{cluster_id}_cluster_data.csv"))
 
                 del baby_data_gaia
                 gc.collect()

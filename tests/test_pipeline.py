@@ -264,5 +264,5 @@ if __name__ == '__main__':
     # test_hdbscan()
     # test_dbscan_preprocessor()
     # pipe = test_plotting()
-    test_gmm()
+    # test_gmm()
     post = test_gmm_postprocessor()
