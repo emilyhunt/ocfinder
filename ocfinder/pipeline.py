@@ -220,6 +220,7 @@ class Pipeline(object):
 # A blank statistics DataFrame. We use this in case no clusters are returned so that a blank cluster list can be saved
 # instead for that field.
 _blank_statistics_dataframe = pd.DataFrame(columns=[
+    'field', 'run', 'cluster_label', 'cluster_id',
     'n_stars', 'ra', 'ra_std', 'ra_error', 'dec', 'dec_std', 'dec_error', 'ang_dispersion', 'ang_radius_50',
     'ang_radius_50_error', 'ang_radius_c', 'ang_radius_c_error', 'ang_radius_t', 'ang_radius_t_error', 'radius_50',
     'radius_50_error', 'radius_c', 'radius_c_error', 'radius_t', 'radius_t_error', 'parallax', 'parallax_std',
