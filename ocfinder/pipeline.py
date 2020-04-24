@@ -220,15 +220,12 @@ class Pipeline(object):
 # A blank statistics DataFrame. We use this in case no clusters are returned so that a blank cluster list can be saved
 # instead for that field.
 _blank_statistics_dataframe = pd.DataFrame(columns=[
-    'field', 'run', 'cluster_label', 'cluster_id', 'n_stars',
-    'ra', 'ra_error', 'dec', 'dec_error', 'ang_radius_50',
-    'ang_radius_50_error', 'ang_radius_c', 'ang_radius_c_error',
-    'ang_radius_t', 'ang_radius_t_error', 'radius_50', 'radius_50_error',
-    'radius_c', 'radius_c_error', 'radius_t', 'radius_t_error', 'parallax',
-    'parallax_error', 'inverse_parallax', 'inverse_parallax_l68',
-    'inverse_parallax_u68', 'distance', 'distance_error', 'pmra',
-    'pmra_error', 'pmdec', 'pmdec_error', 'v_internal_tangential',
-    'v_internal_tangential_error', 'parameter_inference_mode',
+    'n_stars', 'ra', 'ra_std', 'ra_error', 'dec', 'dec_std', 'dec_error', 'ang_dispersion', 'ang_radius_50',
+    'ang_radius_50_error', 'ang_radius_c', 'ang_radius_c_error', 'ang_radius_t', 'ang_radius_t_error', 'radius_50',
+    'radius_50_error', 'radius_c', 'radius_c_error', 'radius_t', 'radius_t_error', 'parallax', 'parallax_std',
+    'parallax_error', 'inverse_parallax', 'inverse_parallax_l68', 'inverse_parallax_u68', 'distance', 'distance_std',
+    'distance_error', 'pmra', 'pmra_std', 'pmra_error', 'pmdec', 'pmdec_std', 'pmdec_error', 'pm_dispersion',
+    'v_internal_tangential', 'v_internal_tangential_error', 'parameter_inference_mode '
 ])
 
 
@@ -573,7 +570,7 @@ class ClusteringAlgorithm(Pipeline):
                               run_name: Union[str, int],
                               time: float,
                               n_clusters: int,
-                              parameters: dict,):
+                              parameters: dict, ):
         """Saves the timing results of a clustering analysis. Makes a new csv at output_paths['times'] or writes a new
         one.
 
@@ -946,13 +943,13 @@ class ResultPlotter(Pipeline):
 
         # Now, let's make us a figure title of fun and happiness!!!
         self.plot_kwargs['figure_title'] = (
-            self.base_figure_title +
-            f"Clustering analysis with {series_runs['algorithm']}, "
-            f"field: {series_runs['field_name']}, run: {series_runs['run_name']}\n"
-            f"total clusters (num valid): {series_runs['n_clusters']}  ({cluster_list.shape[0]}), "
-            f"plotted clusters: {clusters_to_plot}\n"
-            f"non-default parameters: {series_runs['parameters']}\n"
-            f"runtime: {series_runs['time']:.2f}s  ({series_runs['time'] / 60**2:.2f}h)"
+                self.base_figure_title +
+                f"Clustering analysis with {series_runs['algorithm']}, "
+                f"field: {series_runs['field_name']}, run: {series_runs['run_name']}\n"
+                f"total clusters (num valid): {series_runs['n_clusters']}  ({cluster_list.shape[0]}), "
+                f"plotted clusters: {clusters_to_plot}\n"
+                f"non-default parameters: {series_runs['parameters']}\n"
+                f"runtime: {series_runs['time']:.2f}s  ({series_runs['time'] / 60 ** 2:.2f}h)"
         )
 
         # And a save name too =)
@@ -988,7 +985,7 @@ class ResultPlotter(Pipeline):
                       " implementation change upstream will break this function! Stay safe.")
         data_runs = pd.read_csv(self.input_paths['times'][0],
                                 dtype={'field_name': str,
-                                       'run_name': str,})
+                                       'run_name': str, })
 
         # Cycle over fields and runs
         last_field_name = 'if you get a match with this string, then honestly you win a prize'
