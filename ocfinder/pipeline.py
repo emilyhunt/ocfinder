@@ -226,7 +226,7 @@ _blank_statistics_dataframe = pd.DataFrame(columns=[
     'radius_50_error', 'radius_c', 'radius_c_error', 'radius_t', 'radius_t_error', 'parallax', 'parallax_std',
     'parallax_error', 'inverse_parallax', 'inverse_parallax_l68', 'inverse_parallax_u68', 'distance', 'distance_std',
     'distance_error', 'pmra', 'pmra_std', 'pmra_error', 'pmdec', 'pmdec_std', 'pmdec_error', 'pm_dispersion',
-    'v_internal_tangential', 'v_internal_tangential_error', 'parameter_inference_mode '
+    'v_internal_tangential', 'v_internal_tangential_error', 'parameter_inference_mode'
 ])
 
 
