@@ -402,8 +402,8 @@ default_cuts = {
 default_cut_parameters = {
     'min_size': 10,
     'max_size': np.inf,
-    'min_radius_deg': 0.075,
-    'max_radius_pc': 7.5,
+    'min_radius_deg': 0.15,
+    'max_radius_pc': 15.,
 }
 
 
