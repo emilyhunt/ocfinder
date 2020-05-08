@@ -242,7 +242,8 @@ class ClusteringAlgorithm(Pipeline):
                  required_input_keys: Union[list, tuple] = ('data', 'rescaled'),
                  required_output_keys: Union[list, tuple] = ('data', 'labels', 'times'),
                  extra_returned_info: Union[list, tuple] = (),
-                 max_cluster_size_to_save: int = 10000, ):
+                 max_cluster_size_to_save: int = 10000,
+                 input_shapes_to_not_check: Union[list, tuple] = ('times',)):
         """Intermediary superclass between the Pipeline class and clustering algorithms. Implements apply(),
         save_clustering_result() and save_clustering_time() methods.
 
@@ -284,7 +285,7 @@ class ClusteringAlgorithm(Pipeline):
         """
 
         super().__init__(names, input_dirs, input_patterns=input_patterns, output_dirs=output_dirs, verbose=verbose,
-                         check_input_shape=['times'],
+                         check_input_shape=input_shapes_to_not_check,
                          required_input_keys=required_input_keys,
                          required_output_keys=required_output_keys)
 
@@ -332,7 +333,7 @@ class ClusteringAlgorithm(Pipeline):
         if self.verbose:
             print("  initialisation is complete! Hurrah \\o/")
 
-    def _get_clusterer_args(self, path: Path, input_number):
+    def _get_clusterer_args(self, path: Path, input_number, parameter_number, initial_run_number):
         """Cheeky hack that lets me use an extra input argument if necessary on certain functions (like GMMs)."""
         # Feather rescaled files have useless column names which we drop now
         if path.suffix == '.feather':
@@ -432,10 +433,11 @@ class ClusteringAlgorithm(Pipeline):
 
                 if self.verbose:
                     print(f"-- {datetime.datetime.today()}")
-                    print(f"Running {self.algorithm_name} on cluster {a_field_name}!")
+                    print(f"Running {self.algorithm_name} on field {a_field_name}!")
                     print(f"  parameter set = {i_parameter_set} of {self.n_kwarg_sets}")
 
-                algorithm_args = self._get_clusterer_args(a_data_rescaled_path, input_number)
+                algorithm_args = self._get_clusterer_args(a_data_rescaled_path, input_number,
+                                                          i_parameter_set, initial_run_number)
 
                 start = datetime.datetime.today()
                 algorithm_return = self.algorithm(*algorithm_args, **an_algorithm_kwargs)

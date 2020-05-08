@@ -3,7 +3,7 @@
 import ocfinder.pipeline
 import ocfinder.hdbscan
 import ocfinder.dbscan
-# import ocfinder.upmask  # Not all machines using this code have R installed, for now...
+import ocfinder.upmask
 import ocfinder.gmm
 
 from pathlib import Path
@@ -75,7 +75,9 @@ def test_preprocessor_split():
                                                   split_files=True)
     preprocessor.apply()
 
-    return preprocessor
+    data_cut = pd.read_feather(output_dirs['cut'] / Path('0000_cut.feather'))
+
+    return preprocessor, data_cut
 
 
 def test_hdbscan():
@@ -201,7 +203,7 @@ def test_gmm_postprocessor():
     output_dirs = {'plots': Path('./test_gmm_postprocessor_output/plots')}
 
     kwargs_for_plotting_algorithm = {
-        'cmd_plot_y_limits': [8, 16],
+        'cmd_plot_y_limits': [8, 18],
         'dpi': 300,
         'cluster_marker_radius': (2., 2., 2., 2.),
     }
@@ -222,8 +224,60 @@ def test_gmm_postprocessor():
 
 def test_upmask():
     """Tests the UPMASK usage of the ClusteringAlgorithm superclass et al."""
-    # Todo
-    pass
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'labels': Path('./test_gmm_postprocessor_output/'),
+                  'cluster_list': Path('./test_gmm_postprocessor_output/')}
+    output_dirs = {'labels': Path('./test_upmask_output'),
+                   'probabilities': Path('./test_upmask_output'),
+                   'cluster_data': Path('./test_upmask_output'),
+                   'cluster_list': Path('./test_upmask_output'),
+                   'times': Path('./test_upmask_output')}
+    input_patterns = {'labels': '*labels*',
+                      'cluster_list': '*cluster_list*'}
+
+    upmasked = ocfinder.upmask.UPMASKPipeline(
+        ['0000'],
+        input_dirs,
+        input_patterns=input_patterns,
+        output_dirs=output_dirs,
+        verbose=True,
+        max_cluster_size_to_save=10000,
+        user_kwargs=[{'verbose': True}, {'verbose': True}, {'verbose': True}]
+    )
+
+    upmasked.apply()
+
+    # Let's also do some plotting!
+    input_dirs = {'cut': Path('./test_preprocessor_output_healpix/0000_cut.feather'),
+                  'labels': Path('./test_upmask_output'),
+                  'probabilities': Path('./test_upmask_output'),
+                  'cluster_list': Path('./test_upmask_output'),
+                  'times': Path('./test_upmask_output/runtimes.csv')}
+
+    input_patterns = {'labels': '*_labels.feather',
+                      'probabilities': '*_probs.feather',
+                      'cluster_list': '*_cluster_list.csv', }
+
+    output_dirs = {'plots': Path('./test_upmask_output/plots')}
+
+    kwargs_for_plotting_algorithm = {
+        'cmd_plot_y_limits': [8, 18],
+        'dpi': 300,
+        'cluster_marker_radius': (2., 2., 2., 2.),
+    }
+
+    industrial_strength_plotting_pipeline = ocfinder.pipeline.ResultPlotter(
+        ['0000'],
+        input_dirs,
+        input_patterns=input_patterns,
+        output_dirs=output_dirs,
+        **kwargs_for_plotting_algorithm
+    )
+
+    industrial_strength_plotting_pipeline.apply(
+        plot_clusters_individually=False)
+
+    return upmasked
 
 
 def test_plotting():
@@ -261,8 +315,10 @@ def test_plotting():
 if __name__ == '__main__':
     # pipe, gaia = test_pipeline()
     # pipe, gaia = test_preprocessor()
+    # pipe, gaia = test_preprocessor_split()
     # test_hdbscan()
     # test_dbscan_preprocessor()
     # pipe = test_plotting()
     # test_gmm()
-    post = test_gmm_postprocessor()
+    # post = test_gmm_postprocessor()
+    upmask = test_upmask()

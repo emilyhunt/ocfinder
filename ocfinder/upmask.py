@@ -5,6 +5,10 @@ import numpy as np
 import pandas as pd
 import time
 
+from .pipeline import ClusteringAlgorithm
+from pathlib import Path
+from typing import List, Dict, Tuple, Union, Optional
+
 # R stuff for UPMASK
 import rpy2.robjects as ro
 from rpy2.robjects.packages import importr
@@ -32,13 +36,8 @@ default_result_plot_kwargs = {
     'figure_size': (10, 10),
 }
 
-blanco_1_cuts = {'phot_g_mean_mag': [-np.inf, 18],
-                 'parallax': [2, np.inf],
-                 'pmra': [15, 25],
-                 'pmdec': [-2, 7]}
 
-
-def _get_upmask_cuts(data_gaia, labels, cluster_label, probabilities=None, mode='tcg+18', debug=False):
+def _get_upmask_cuts(data_gaia, labels, cluster_label, probabilities=None, mode='tcg+18_plus_pmra', debug=False):
     """Returns a dict to pass to run_upmask containing parameter cuts compatible with ocelot.cluster.cut_dataset.
     """
     # First, let's use ocelot to calculate stats for our cluster
@@ -67,12 +66,12 @@ def _get_upmask_cuts(data_gaia, labels, cluster_label, probabilities=None, mode=
     # Cuts like Cantat-Gaudin but with proper motion a little restricted too
     elif mode == 'tcg+18_plus_pmra':
         cuts = {
-            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_t'] * np.asarray([-2, 2]),
-            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_t'] * np.asarray([-2, 2]),
+            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_t'] * np.asarray([-4, 4]),
+            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_t'] * np.asarray([-4, 4]),
             'phot_g_mean_mag': [-np.inf, 18],
             'parallax': stats_cluster['parallax'] + np.asarray([-0.5, 0.5]),
-            'pmra': stats_cluster['pmra'] + np.asarray([-10, 10]),
-            'pmdec': stats_cluster['pmdec'] + np.asarray([-10, 10]),
+            'pmra': stats_cluster['pmra'] + np.asarray([-5, 5]),
+            'pmdec': stats_cluster['pmdec'] + np.asarray([-5, 5]),
         }
     else:
         raise ValueError("selected input_mode is not supported!")
@@ -110,8 +109,7 @@ def _read_multiple_results(filenames, n_stars, cluster_index_to_assign):
     return probabilities_reduced, labels_reduced
 
 
-def _find_cluster(data_gaia, cuts, n_iterations: int = 5, plot_cuts=False, plot_result=False,
-                  upmask_kwargs_to_overwrite=None, result_plot_kwargs_to_overwrite=None, cluster_index_to_assign=0):
+def _find_cluster(data_gaia, cuts, upmask_kwargs, n_iterations: int = 5, cluster_index_to_assign=0):
     """Run UPMASK on a Gaia field and returns UPMASK clustering probabilities."""
     # Initialise empty columns
     data_gaia['probabilities'] = 0.
@@ -121,30 +119,30 @@ def _find_cluster(data_gaia, cuts, n_iterations: int = 5, plot_cuts=False, plot_
     data_gaia_cut, data_gaia_dropped = ocelot.cluster.cut_dataset(data_gaia, parameter_cuts=cuts,
                                                                   return_cut_stars=True, reset_index=False)
 
-    if plot_cuts:
-        ocelot.plot.location(data_gaia_cut, figure_title='Blanco 1, after cuts')
+    # If this leaves us without any stars, then the input is bad and we should return nada anyway
+    # Deal with if there are no clusters passed here
+    if len(data_gaia_cut) < 1:
+        return -1 * np.ones(data_gaia.shape[0]), np.zeros(data_gaia.shape[0])
 
     # Turn the cut data_gaia into a temporary file
     data_gaia_small = \
         data_gaia_cut[['ra', 'dec', 'pmra', 'pmra_error', 'pmdec', 'pmdec_error', 'parallax', 'parallax_error']]
 
-    # Grab a covariance matrix
-    covariance_matrix = ocelot.cluster.generate_gaia_covariance_matrix(data_gaia_cut)
-
-    # Overwrite any of my default UPMASK parameters
-    upmask_kwargs = default_upmask_kwargs
-    if upmask_kwargs_to_overwrite is not None:
-        for a_kwarg in upmask_kwargs_to_overwrite.keys():
-            upmask_kwargs[a_kwarg] = upmask_kwargs_to_overwrite[a_kwarg]
+    # Grab a covariance matrix, albeit only if we have covariance information
+    if 'pmra_pmdec_corr' in data_gaia_cut.keys():
+        covariance_matrix = ocelot.cluster.generate_gaia_covariance_matrix(data_gaia_cut)
+    else:
+        covariance_matrix = np.zeros((3, 3), dtype=int)
+        np.fill_diagonal(covariance_matrix, 1)
+        covariance_matrix = np.tile(covariance_matrix, (len(data_gaia_cut), 1, 1))
 
     # And lastly, keep a list of filenames around
     filenames = [f'temp_out_{i}.csv' for i in range(n_iterations)]
 
     # Time to run upmask!!!
-    i = 0
-    while i < n_iterations:
+    for i in range(n_iterations):
         # Re-sample the parallax, pmra and pmdec errors in data_gaia_small
-        with pd.option_context("input_mode.chained_assignment", None):
+        with pd.option_context("mode.chained_assignment", None):
             data_gaia_small[['pmra', 'pmdec', 'parallax']] = \
                 ocelot.cluster.resample_gaia_astrometry(data_gaia_cut, covariance_matrix)
 
@@ -155,10 +153,8 @@ def _find_cluster(data_gaia, cuts, n_iterations: int = 5, plot_cuts=False, plot_
                           filenames[i],
                           **upmask_kwargs)
 
-        i += 1
-
     # Read in the results and write them to the data frames
-    with pd.option_context("input_mode.chained_assignment", None):
+    with pd.option_context("mode.chained_assignment", None):
         data_gaia_cut[['probabilities', 'labels']] = np.asarray(
             _read_multiple_results(filenames, data_gaia_cut.shape[0],
                                    cluster_index_to_assign=cluster_index_to_assign)).T
@@ -171,21 +167,6 @@ def _find_cluster(data_gaia, cuts, n_iterations: int = 5, plot_cuts=False, plot_
     # Get probabilities & labels in the right shape
     probabilities, labels = data_gaia[['probabilities', 'labels']].to_numpy().T
 
-    # Plot external kwargs if desired
-    if plot_result:
-
-        # Overwrite the default kwargs
-        result_plot_kwargs = default_result_plot_kwargs
-        if result_plot_kwargs_to_overwrite is not None:
-            for a_kwarg in result_plot_kwargs_to_overwrite.keys():
-                result_plot_kwargs[a_kwarg] = result_plot_kwargs_to_overwrite[a_kwarg]
-
-        fig, ax = ocelot.plot.clustering_result(data_gaia,
-                                                labels,
-                                                [cluster_index_to_assign],
-                                                probabilities,
-                                                **result_plot_kwargs)
-
     return labels, probabilities
 
 
@@ -193,26 +174,33 @@ def run_upmask(data_gaia,
                labels,
                labels_to_find,
                probabilities=None,
-               cut_mode='tcg+18',
+               cut_mode='tcg+18_plus_pmra',
                n_iterations: int = 5,
-               upmask_kwargs_to_overwrite=None,
-               verbose=True):
+               locally_verbose: bool = True,
+               **upmask_kwargs_to_overwrite):
     """Applies UPMASK to validate a cluster candidate. Returns accurate UPMASK labels for clusters in a field.
     In cases when a star has an equal probability of being a member of two or more clusters, then the cluster with the
     lowest cluster label is preferred.
 
     Note that this could get extremely slow if fed too many clusters, so be careful!
     """
-    if verbose:
+    if locally_verbose:
         print(f"Applying UPMASK to clusters in a field!")
 
-    # Cycle over all the clusters, having a generally quite fun time really
-    new_cluster_labels = np.ones((labels.shape[0], labels_to_find.shape[0]), dtype=int)
+    upmask_kwargs = default_upmask_kwargs
+    upmask_kwargs.update(default_upmask_kwargs)
+
+    # Deal with if there are no clusters passed here
+    if len(labels_to_find) < 1:
+        return -1 * np.ones(labels.shape[0]), np.zeros(labels.shape[0])
+
+    # Otherwise, if there are any, we cycle over all the clusters, having a generally quite fun time really
+    new_cluster_labels = -1 * np.ones((labels.shape[0], labels_to_find.shape[0]), dtype=int)
     new_cluster_probabilities = np.zeros((labels.shape[0], labels_to_find.shape[0]), dtype=float)
 
     for i, a_label in enumerate(labels_to_find):
 
-        if verbose:
+        if locally_verbose:
             print(f"  running UPMASK on cluster {a_label}...")
 
         start = time.time()
@@ -221,11 +209,11 @@ def run_upmask(data_gaia,
         cuts = _get_upmask_cuts(data_gaia, labels, a_label, probabilities=probabilities, mode=cut_mode,)
 
         # Run UPMASK
-        new_cluster_labels[i], new_cluster_probabilities[i] = _find_cluster(
-            data_gaia, cuts, n_iterations=n_iterations, upmask_kwargs_to_overwrite=upmask_kwargs_to_overwrite,
+        new_cluster_labels[:, i], new_cluster_probabilities[:, i] = _find_cluster(
+            data_gaia, cuts, upmask_kwargs, n_iterations=n_iterations,
             cluster_index_to_assign=a_label)
 
-        if verbose:
+        if locally_verbose:
             print(f"  finished applying UPMASK to cluster in {(time.time() - start)/60:.2f} minutes.")
 
     # Find the best cluster for every star
@@ -235,3 +223,93 @@ def run_upmask(data_gaia,
     indexer = np.arange(labels.shape[0])
 
     return new_cluster_labels[indexer, best_cluster], new_cluster_probabilities[indexer, best_cluster]
+
+
+class UPMASKPipeline(ClusteringAlgorithm):
+    def __init__(self,
+                 names: Union[list, tuple, np.ndarray],
+                 input_dirs: Dict[str, Union[Path, list]],
+                 input_patterns: Optional[Dict[str, str]] = None,
+                 output_dirs: Optional[Dict[str, Path]] = None,
+                 verbose: bool = True,
+                 user_kwargs: Optional[Union[List[dict], Tuple[dict]]] = None,
+                 max_cluster_size_to_save: int = 10000,
+                 valid_cluster_key: str = 'valid_total'):
+        """Your best friend if you want to test clustering results with a basic first principles cluster detector.
+
+        Args:
+            names (list-like): list of names of fields to run on to save.
+            input_dirs (dict of paths or lists of paths): input directories. You have three options:
+                - If a path to one file, just one path will be saved
+                - If a list of paths, this list will be saved
+                - If a path to a directory, then files with a suffix specified by input_patterns[the_dict_key] will be
+                  saved.
+                All key locations must end up having the same shape if check_input_shape=True, which is specified by the
+                requirements of the subclass.
+            input_patterns (dict of str): for input_dirs that are a path to a directory, this is the pattern to look
+                for. Can just be "*" to look for all files.
+                Default: None
+            output_dirs (dict of paths): output directories to write to.
+            verbose (bool): whether or not to run in verbose mode with informative print statements.
+                Default: True
+            user_kwargs (list or tuple of dicts, optional): parameter sets to run with. len(user_kwargs) is the number
+                of runs that will be performed.
+                Default: None (only runs with default parameters once)
+
+        User methods:
+            apply(): applies the algorithm to the data specified by input_dirs.
+
+        """
+        super().__init__(run_upmask,
+                         user_kwargs,
+                         names,
+                         input_dirs,
+                         input_patterns=input_patterns,
+                         output_dirs=output_dirs,
+                         verbose=verbose,
+                         required_input_keys=['cut', 'labels', 'cluster_list'],
+                         required_output_keys=['labels', 'probabilities',
+                                               'cluster_data', 'cluster_list', ],
+                         max_cluster_size_to_save=max_cluster_size_to_save,
+                         input_shapes_to_not_check=['cut'])
+
+        # Overwrite a couple of superclass things because GMMs are fucking weird - they have lots of extra inputs that
+        # I want to make super sure are in the correct order
+        self.n_separate_runs = len(self.algorithm_kwargs)
+        self.valid_cluster_key = valid_cluster_key
+        self.extra_input_names = ['labels', 'cluster_list']
+        self.input_paths['rescaled'] = self.input_paths['cut']  # Future me is gonna hate this bullshit trick lol
+
+        # Quick manual check that there are enough cut dataframes to go around as this isn't checked above
+        labels_to_cut_ratio = len(self.input_paths['labels']) / len(self.input_paths['cut'])
+        if labels_to_cut_ratio != self.n_separate_runs:
+            raise ValueError(f"mismatch between the number of 'labels'/'cluster_list' inputs and the number of 'cut' "
+                             f"inputs! Given that you have {self.n_separate_runs} to process, there should be "
+                             f"{self.n_separate_runs}x more labels/cluster_list entries than there are cut_data "
+                             f"entries, but there are actually only {labels_to_cut_ratio} as many.")
+
+    def _get_clusterer_args(self, path: Path, input_number, parameter_number, initial_run_number):
+        """Re-defined here because UPMASK is really weird!"""
+        # Read in the DataFrame
+        if path.suffix == '.feather' or path.suffix == '.csv':
+            main_data = self._open(path)
+        else:
+            raise ValueError("UPMASK requires a DataFrame in data_gaia style, but the input you've passed doesn't "
+                             "appear to be a table (i.e. it's not .feather or .csv.)")
+
+        if 'pmra_pmdec_corr' not in main_data.keys():
+            print("  WARNING: no covariances found!\n    Falling back on uncovariant random draws of data.\n"
+                  "    This is BAD, because Gaia data axes are highly covariant!\n    Be concerned!")
+
+        to_return = [main_data]
+
+        # Next, let's deal with the labels
+        index_to_read_in = self.n_separate_runs * input_number + parameter_number - initial_run_number
+        to_return.append(self._open(self.input_paths['labels'][index_to_read_in]).values)
+
+        # Finally, we need the cluster_list's valid labels
+        cluster_list = self._open(self.input_paths['cluster_list'][index_to_read_in])
+        to_return.append(
+            cluster_list.loc[cluster_list[self.valid_cluster_key], 'cluster_label'].to_numpy())
+
+        return to_return
