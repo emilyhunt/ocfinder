@@ -84,6 +84,18 @@ def _get_upmask_cuts(data_gaia, labels, cluster_label, probabilities=None, mode=
             'pmra': stats_cluster['pmra'] + np.asarray([-5, 5]),
             'pmdec': stats_cluster['pmdec'] + np.asarray([-5, 5]),
         }
+
+    # Like Cantat-Gaudin but changed to work specifically with CAC20 results (so, uses r_50), and super restricted
+    elif mode == 'cac20_super_restricted':
+        cuts = {
+            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_50'] * np.asarray([-4, 4]),
+            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_50'] * np.asarray([-4, 4]),
+            'phot_g_mean_mag': [-np.inf, 18],
+            'parallax': stats_cluster['parallax'] + np.asarray([-0.3, 0.3]),
+            'pmra': stats_cluster['pmra'] + np.asarray([-2, 2]),
+            'pmdec': stats_cluster['pmdec'] + np.asarray([-2, 2]),
+        }
+
     else:
         raise ValueError("selected input_mode is not supported!")
 
@@ -152,6 +164,9 @@ def _find_cluster(data_gaia, cuts, upmask_kwargs, n_iterations: int = 5, cluster
 
     # Time to run upmask!!!
     for i in range(n_iterations):
+
+        print(f"    iteration {i} of {n_iterations}")
+
         # Re-sample the parallax, pmra and pmdec errors in data_gaia_small
         with pd.option_context("mode.chained_assignment", None):
             data_gaia_small[['pmra', 'pmdec', 'parallax']] = \
