@@ -66,8 +66,19 @@ def _get_upmask_cuts(data_gaia, labels, cluster_label, probabilities=None, mode=
     # Cuts like Cantat-Gaudin but with proper motion a little restricted too
     elif mode == 'tcg+18_plus_pmra':
         cuts = {
-            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_t'] * np.asarray([-4, 4]),
-            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_t'] * np.asarray([-4, 4]),
+            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_t'] * np.asarray([-3, 3]),
+            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_t'] * np.asarray([-3, 3]),
+            'phot_g_mean_mag': [-np.inf, 18],
+            'parallax': stats_cluster['parallax'] + np.asarray([-0.5, 0.5]),
+            'pmra': stats_cluster['pmra'] + np.asarray([-5, 5]),
+            'pmdec': stats_cluster['pmdec'] + np.asarray([-5, 5]),
+        }
+
+    # Like Cantat-Gaudin but changed to work specifically with CAC20 results (so, uses r_50)
+    elif mode == 'cac20_restricted':
+        cuts = {
+            'ra': stats_cluster['ra'] + stats_cluster['ang_radius_50'] * np.asarray([-6, 6]),
+            'dec': stats_cluster['dec'] + stats_cluster['ang_radius_50'] * np.asarray([-6, 6]),
             'phot_g_mean_mag': [-np.inf, 18],
             'parallax': stats_cluster['parallax'] + np.asarray([-0.5, 0.5]),
             'pmra': stats_cluster['pmra'] + np.asarray([-5, 5]),
@@ -174,7 +185,7 @@ def run_upmask(data_gaia,
                labels,
                labels_to_find,
                probabilities=None,
-               cut_mode='tcg+18_plus_pmra',
+               cut_mode='cac20_restricted',
                n_iterations: int = 5,
                locally_verbose: bool = True,
                **upmask_kwargs_to_overwrite):
@@ -188,7 +199,7 @@ def run_upmask(data_gaia,
         print(f"Applying UPMASK to clusters in a field!")
 
     upmask_kwargs = default_upmask_kwargs
-    upmask_kwargs.update(default_upmask_kwargs)
+    upmask_kwargs.update(upmask_kwargs_to_overwrite)
 
     # Deal with if there are no clusters passed here
     if len(labels_to_find) < 1:
