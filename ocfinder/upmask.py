@@ -153,6 +153,7 @@ def _find_cluster(data_gaia, cuts, upmask_kwargs, n_iterations: int = 5, cluster
 
     # Grab a covariance matrix, albeit only if we have covariance information
     if 'pmra_pmdec_corr' not in data_gaia_cut.keys():
+        data_gaia_cut = data_gaia_cut.copy()  # Shuts up a Pandas warning lol, might be slow if it big
         data_gaia_cut['pmra_pmdec_corr'] = 0.
         data_gaia_cut['parallax_pmra_corr'] = 0.
         data_gaia_cut['parallax_pmdec_corr'] = 0.
