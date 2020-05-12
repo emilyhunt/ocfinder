@@ -152,12 +152,12 @@ def _find_cluster(data_gaia, cuts, upmask_kwargs, n_iterations: int = 5, cluster
         data_gaia_cut[['ra', 'dec', 'pmra', 'pmra_error', 'pmdec', 'pmdec_error', 'parallax', 'parallax_error']]
 
     # Grab a covariance matrix, albeit only if we have covariance information
-    if 'pmra_pmdec_corr' in data_gaia_cut.keys():
-        covariance_matrix = ocelot.cluster.generate_gaia_covariance_matrix(data_gaia_cut)
-    else:
-        covariance_matrix = np.zeros((3, 3), dtype=int)
-        np.fill_diagonal(covariance_matrix, 1)
-        covariance_matrix = np.tile(covariance_matrix, (len(data_gaia_cut), 1, 1))
+    if 'pmra_pmdec_corr' not in data_gaia_cut.keys():
+        data_gaia_cut['pmra_pmdec_corr'] = 0.
+        data_gaia_cut['parallax_pmra_corr'] = 0.
+        data_gaia_cut['parallax_pmdec_corr'] = 0.
+
+    covariance_matrix = ocelot.cluster.generate_gaia_covariance_matrix(data_gaia_cut)
 
     # And lastly, keep a list of filenames around
     filenames = [f'temp_out_{i}.csv' for i in range(n_iterations)]
@@ -165,7 +165,7 @@ def _find_cluster(data_gaia, cuts, upmask_kwargs, n_iterations: int = 5, cluster
     # Time to run upmask!!!
     for i in range(n_iterations):
 
-        print(f"    iteration {i} of {n_iterations}")
+        print(f"    iteration {i+1} of {n_iterations}")
 
         # Re-sample the parallax, pmra and pmdec errors in data_gaia_small
         with pd.option_context("mode.chained_assignment", None):
